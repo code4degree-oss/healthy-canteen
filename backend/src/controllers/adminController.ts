@@ -1,0 +1,112 @@
+import { Request, Response } from 'express';
+import User from '../models/User';
+import MenuItem from '../models/MenuItem';
+import AddOn from '../models/AddOn';
+import Order from '../models/Order';
+import Subscription from '../models/Subscription';
+import bcrypt from 'bcryptjs';
+
+// --- USERS ---
+
+export const getAllUsers = async (req: Request, res: Response) => {
+    try {
+        const users = await User.findAll({
+            attributes: { exclude: ['password'] },
+            include: [Order, Subscription]
+        });
+        res.json(users);
+    } catch (error) {
+        res.status(500).json({ message: 'Error fetching users', error });
+    }
+};
+
+export const deleteUser = async (req: Request, res: Response) => {
+    try {
+        const { id } = req.params;
+        await User.destroy({ where: { id } });
+        res.json({ message: 'User deleted successfully' });
+    } catch (error) {
+        res.status(500).json({ message: 'Error deleting user', error });
+    }
+};
+
+export const createUser = async (req: Request, res: Response) => {
+    try {
+        const { name, email, password, role } = req.body;
+        const hashedPassword = await bcrypt.hash(password, 10);
+        const user = await User.create({ name, email, password: hashedPassword, role: role || 'user' });
+        res.status(201).json({ message: 'User created', user });
+    } catch (error) {
+        res.status(500).json({ message: 'Error creating user', error });
+    }
+};
+
+// --- MENU ---
+
+export const getMenu = async (req: Request, res: Response) => {
+    try {
+        const menu = await MenuItem.findAll();
+        res.json(menu);
+    } catch (error) {
+        res.status(500).json({ message: 'Error fetching menu', error });
+    }
+};
+
+export const addMenuItem = async (req: Request, res: Response) => {
+    try {
+        const item = await MenuItem.create(req.body);
+        res.status(201).json(item);
+    } catch (error) {
+        res.status(500).json({ message: 'Error adding menu item', error });
+    }
+};
+
+export const updateMenuItem = async (req: Request, res: Response) => {
+    try {
+        const { id } = req.params;
+        await MenuItem.update(req.body, { where: { id } });
+        res.json({ message: 'Menu item updated' });
+    } catch (error) {
+        res.status(500).json({ message: 'Error updating menu item', error });
+    }
+};
+
+export const deleteMenuItem = async (req: Request, res: Response) => {
+    try {
+        const { id } = req.params;
+        await MenuItem.destroy({ where: { id } });
+        res.json({ message: 'Menu item deleted' });
+    } catch (error) {
+        res.status(500).json({ message: 'Error deleting menu item', error });
+    }
+};
+
+// --- ADD ONS ---
+
+export const getAddOns = async (req: Request, res: Response) => {
+    try {
+        const addons = await AddOn.findAll();
+        res.json(addons);
+    } catch (error) {
+        res.status(500).json({ message: 'Error fetching addons', error });
+    }
+};
+
+export const addAddOn = async (req: Request, res: Response) => {
+    try {
+        const addon = await AddOn.create(req.body);
+        res.status(201).json(addon);
+    } catch (error) {
+        res.status(500).json({ message: 'Error adding addon', error });
+    }
+};
+
+export const deleteAddOn = async (req: Request, res: Response) => {
+    try {
+        const { id } = req.params;
+        await AddOn.destroy({ where: { id } });
+        res.json({ message: 'Addon deleted' });
+    } catch (error) {
+        res.status(500).json({ message: 'Error deleting addon', error });
+    }
+};
