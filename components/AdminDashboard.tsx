@@ -16,7 +16,8 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onBack }) => {
     const [activeView, setActiveView] = useState<'dashboard' | 'customers' | 'menu'>('dashboard');
 
     // Dynamic Data State
-    const [customers, setCustomers] = useState<any[]>([]); // Using any for now to align with backend User model structure
+    const [customers, setCustomers] = useState<any[]>([]);
+    const [plans, setPlans] = useState<any[]>([]); // New Plans State
     const [menuItems, setMenuItems] = useState<MenuItem[]>([]);
     const [addOns, setAddOns] = useState<AddOn[]>([]);
     const [loading, setLoading] = useState(true);
@@ -30,11 +31,23 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onBack }) => {
     const [isEditing, setIsEditing] = useState(false);
     const [editForm, setEditForm] = useState<any | null>(null);
     const [statusFilter, setStatusFilter] = useState<'ALL' | 'ACTIVE' | 'EXPIRED'>('ALL');
-    const [showCreateUserModal, setShowCreateUserModal] = useState(false); // For creating new users
+    const [showCreateUserModal, setShowCreateUserModal] = useState(false);
 
     // --- Menu/Addon View State ---
     const [isAddOnModalOpen, setIsAddOnModalOpen] = useState(false);
     const [newAddOn, setNewAddOn] = useState({ name: '', price: 0, description: '', allowSubscription: false });
+
+    // --- Plan/Menu Management State ---
+    const [isPlanModalOpen, setIsPlanModalOpen] = useState(false);
+    const [newPlan, setNewPlan] = useState({ name: '', slug: '' });
+    const [isMenuItemModalOpen, setIsMenuItemModalOpen] = useState(false);
+    const [selectedPlanId, setSelectedPlanId] = useState<number | null>(null);
+    const [newMenuItem, setNewMenuItem] = useState({
+        name: '', slug: '', description: '', proteinAmount: 0, calories: 0, price: 0, color: '#000000', image: null as File | null
+    });
+
+
+    const [deliveryPartners, setDeliveryPartners] = useState<any[]>([]);
 
     // FETCH DATA ON MOUNT
     useEffect(() => {
@@ -44,14 +57,20 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onBack }) => {
     const fetchData = async () => {
         setLoading(true);
         try {
-            const [usersRes, menuRes, addonsRes] = await Promise.all([
+            const [usersRes, menuRes, addonsRes, partnersRes] = await Promise.all([
                 admin.getAllUsers(),
-                admin.getMenu(),
-                admin.getAddOns()
+                admin.getMenu(), // Returns plans with items included
+                admin.getAddOns(),
+                admin.getDeliveryPartners()
             ]);
             setCustomers(usersRes.data);
-            setMenuItems(menuRes.data);
+            setPlans(menuRes.data); // Set plans (which contain items)
+            // Flatten items for table view if needed, or just use plans structure
+            const allItems = menuRes.data.flatMap((p: any) => p.items || []);
+            setMenuItems(allItems);
+
             setAddOns(addonsRes.data);
+            setDeliveryPartners(partnersRes.data);
         } catch (error) {
             console.error("Failed to fetch admin data", error);
         } finally {
@@ -59,10 +78,26 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onBack }) => {
         }
     };
 
+    // Handler for assignment
+    const handleAssignDelivery = async (subId: number, partnerId: string) => {
+        if (!partnerId) return;
+        try {
+            await admin.assignDelivery(subId, parseInt(partnerId));
+            // Optimistic update or refetch
+            fetchData(); // Simplest to refetch to get updated logs
+            alert("Delivery Assigned!");
+        } catch (e) {
+            alert("Failed to assign delivery");
+        }
+    };
+
     // --- STATISTICS CALCULATION ---
     const stats = useMemo(() => {
         // Basic stats logic adapting to backend data structure differences if any
-        const activeCustomers = customers.filter(c => c.subscription && c.subscription.status === 'ACTIVE');
+        const activeCustomers = customers.filter(c => {
+            const activeSub = c.subscriptions?.find((s: any) => s.status === 'ACTIVE');
+            return !!activeSub;
+        });
 
         // Revenue calculation assumes we track it, but backend User model has orderHistory relation. 
         // If backend returns populated orders, we use them.
@@ -76,13 +111,10 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onBack }) => {
         let totalAddons = 0;
 
         activeCustomers.forEach(c => {
-            // Need to check where orders/subscription data comes from. 
-            // Assuming 'subscription' is a single object on User.
-            if (c.subscription) {
-                if (c.subscription.protein === 'CHICKEN') chickenMeals += c.subscription.mealsPerDay || 0;
-                if (c.subscription.protein === 'PANEER') paneerMeals += c.subscription.mealsPerDay || 0;
-                // Addons logic might be complex if stored as JSON or relation. Assuming simple array or not implemented fully yet.
-                // For MVP seed, let's skip complex addon stats if data missing.
+            const activeSub = c.subscriptions?.find((s: any) => s.status === 'ACTIVE');
+            if (activeSub) {
+                if (activeSub.protein === 'CHICKEN') chickenMeals += activeSub.mealsPerDay || 0;
+                if (activeSub.protein === 'PANEER') paneerMeals += activeSub.mealsPerDay || 0;
             }
         });
 
@@ -137,6 +169,20 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onBack }) => {
         }
     };
 
+    const handleMarkReady = async (subId: number) => {
+        try {
+            await admin.markReady(subId);
+            fetchData();
+            // Optional: Show toast
+        } catch (e) {
+            alert("Failed to mark ready");
+        }
+    };
+
+
+
+
+
     const handleCreateUser = async (e: React.FormEvent) => {
         e.preventDefault();
         // Logic for new user form
@@ -166,6 +212,67 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onBack }) => {
         } catch (error) {
             console.error("Failed to update menu", error);
             fetchData(); // Revert on fail
+        }
+    };
+
+    const handleCreatePlan = async (e: React.FormEvent) => {
+        e.preventDefault();
+        try {
+            await admin.createPlan(newPlan);
+            setIsPlanModalOpen(false);
+            setNewPlan({ name: '', slug: '' });
+            fetchData();
+            alert('Plan Created!');
+        } catch (e) { alert('Failed to create plan'); }
+    };
+
+    const handleCreateMenuItem = async (e: React.FormEvent) => {
+        e.preventDefault();
+        if (!selectedPlanId) return alert('Select a plan first');
+
+        const formData = new FormData();
+        formData.append('planId', selectedPlanId.toString());
+        formData.append('name', newMenuItem.name);
+        formData.append('slug', newMenuItem.slug);
+        formData.append('description', newMenuItem.description);
+        formData.append('proteinAmount', newMenuItem.proteinAmount.toString());
+        formData.append('calories', newMenuItem.calories.toString());
+        formData.append('price', newMenuItem.price.toString());
+        formData.append('color', newMenuItem.color);
+        if (newMenuItem.image) formData.append('image', newMenuItem.image);
+
+        try {
+            await admin.addMenuItem(formData);
+            setIsMenuItemModalOpen(false);
+            // Reset form
+            setNewMenuItem({ name: '', slug: '', description: '', proteinAmount: 0, calories: 0, price: 0, color: '#000000', image: null });
+            fetchData();
+            alert('Menu Item Created!');
+        } catch (e) {
+            console.error(e);
+            alert('Failed to create item');
+        }
+    };
+
+    const handleDeleteMenuItem = async (id: number) => {
+        if (confirm('Delete this item?')) {
+            try {
+                await admin.deleteMenuItem(id);
+                fetchData();
+            } catch (e) { alert('Failed to delete'); }
+        }
+    }
+
+    const handleDeletePlan = async (id: number) => {
+        if (confirm('Are you sure you want to delete this plan? All items in it will also be deleted.')) {
+            try {
+                await admin.deletePlan(id);
+                fetchData(); // Refresh list
+                alert('Plan deleted successfully');
+            } catch (e) {
+                console.error(e);
+                alert('Failed to delete plan');
+            }
         }
     };
 
@@ -245,7 +352,15 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onBack }) => {
                             </div>
                         </div>
                     ))}
-                    {stats.recentOrders.length === 0 && <div className="p-6 text-center text-slate-400">No recent activity</div>}
+                    {stats.recentOrders.length === 0 && (
+                        <div className="p-12 text-center text-slate-400 flex flex-col items-center">
+                            <div className="w-12 h-12 bg-slate-100 rounded-full flex items-center justify-center mb-3">
+                                <Activity size={24} className="text-slate-300" />
+                            </div>
+                            <p className="text-sm font-medium text-slate-500">No recent activity</p>
+                            <p className="text-xs text-slate-400 mt-1">New orders will appear here automatically.</p>
+                        </div>
+                    )}
                 </div>
             </div>
         </div>
@@ -277,68 +392,210 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onBack }) => {
                 </div>
             </section>
 
-            <hr className="border-slate-200" />
-
-            {/* Menu Management */}
-            <section>
+            {/* DAILY DELIVERY DETAILS */}
+            <section className="mt-8">
                 <h2 className="text-xl font-bold text-slate-900 mb-4 flex items-center gap-2">
-                    <ClipboardList className="text-blue-600" /> Menu Management
+                    <MapPin className="text-blue-600" /> Today's Deliveries & Add-ons
                 </h2>
-                <div className="bg-white border border-slate-200 rounded-xl overflow-hidden shadow-sm overflow-x-auto">
-                    <table className="w-full text-left min-w-[800px]">
-                        <thead className="bg-slate-50 text-xs font-semibold text-slate-500 uppercase border-b border-slate-200">
+                <div className="bg-white border border-slate-200 rounded-xl overflow-hidden shadow-sm">
+                    <table className="w-full text-left text-sm">
+                        <thead className="bg-slate-50 text-slate-500 border-b border-slate-200">
                             <tr>
-                                <th className="px-6 py-4">Item Name</th>
-                                <th className="px-6 py-4">Calories</th>
-                                <th className="px-6 py-4">Protein (g)</th>
-                                <th className="px-6 py-4">Description</th>
-                                <th className="px-6 py-4">Price</th>
+                                <th className="px-4 py-3">Customer</th>
+                                <th className="px-4 py-3">Address</th>
+                                <th className="px-4 py-3">Main Meal</th>
+                                <th className="px-4 py-3">Add-Ons</th>
+                                <th className="px-4 py-3">Status</th>
                             </tr>
                         </thead>
                         <tbody className="divide-y divide-slate-100">
-                            {menuItems.map(item => (
-                                <tr key={item.id}>
-                                    <td className="px-6 py-4 font-medium text-slate-900">{item.name}</td>
-                                    <td className="px-6 py-4">
-                                        <input
-                                            type="number"
-                                            className="w-20 p-1 border border-slate-300 rounded text-sm"
-                                            value={item.calories}
-                                            onChange={(e) => handleUpdateMenu(item.id, 'calories', parseInt(e.target.value))}
-                                        />
-                                    </td>
-                                    <td className="px-6 py-4">
-                                        <input
-                                            type="number"
-                                            className="w-20 p-1 border border-slate-300 rounded text-sm"
-                                            value={item.protein}
-                                            onChange={(e) => handleUpdateMenu(item.id, 'protein', parseInt(e.target.value))}
-                                        />
-                                    </td>
-                                    <td className="px-6 py-4">
-                                        <textarea
-                                            className="w-full p-2 border border-slate-300 rounded text-sm resize-none"
-                                            rows={2}
-                                            value={item.description}
-                                            onChange={(e) => handleUpdateMenu(item.id, 'description', e.target.value)}
-                                        />
-                                    </td>
-                                    <td className="px-6 py-4">
-                                        <input
-                                            type="number"
-                                            className="w-20 p-1 border border-slate-300 rounded text-sm"
-                                            value={item.price}
-                                            onChange={(e) => handleUpdateMenu(item.id, 'price', parseInt(e.target.value))}
-                                        />
+                            {customers.map(c => {
+                                // Find active sub
+                                const activeSub = c.subscriptions?.find((s: any) => s.status === 'ACTIVE');
+                                if (!activeSub) return null;
+
+                                const activeAddons = activeSub.addons ? Object.keys(activeSub.addons).map(k => {
+                                    const def = addOns.find(a => a.id === parseInt(k));
+                                    const item = activeSub.addons[k];
+                                    if (item.quantity === 0) return null;
+                                    return `${def?.name || '?'} x${item.quantity}`;
+                                }).filter(Boolean).join(', ') : '';
+
+                                return (
+                                    <tr key={activeSub.id}>
+                                        <td className="px-4 py-3 font-medium">{c.name}</td>
+                                        <td className="px-4 py-3 text-slate-500 max-w-xs truncate" title={activeSub.deliveryAddress || c.address}>{activeSub.deliveryAddress || c.address || 'Loc only'}</td>
+                                        <td className="px-4 py-3">
+                                            <span className={`px-2 py-0.5 rounded text-xs text-white font-bold ${activeSub.protein === 'CHICKEN' ? 'bg-orange-400' : 'bg-green-400'}`}>
+                                                {activeSub.protein}
+                                            </span>
+                                        </td>
+                                        <td className="px-4 py-3 text-slate-600 font-medium">
+                                            {activeAddons || '-'}
+                                        </td>
+                                        <td className="px-4 py-3">
+                                            {(() => {
+                                                // Find log for today
+                                                const todayStr = new Date().toISOString().split('T')[0];
+                                                const log = activeSub.deliveryLogs?.find((l: any) => new Date(l.deliveryTime).toISOString().startsWith(todayStr));
+                                                const status = log?.status || 'PENDING';
+
+                                                if (status === 'DELIVERED') {
+                                                    return (
+                                                        <div className="flex flex-col text-xs">
+                                                            <span className="text-green-600 font-bold flex items-center gap-1">✅ {new Date(log.deliveryTime).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
+                                                            {log.deliveryAgent && <span className="text-slate-400">by {log.deliveryAgent.name}</span>}
+                                                        </div>
+                                                    );
+                                                }
+
+                                                if (status === 'PENDING') {
+                                                    return (
+                                                        <button
+                                                            onClick={() => handleMarkReady(activeSub.id)}
+                                                            className="bg-orange-100 text-orange-700 hover:bg-orange-200 px-3 py-1 rounded text-xs font-bold border border-orange-200 transition-colors"
+                                                        >
+                                                            Mark Ready
+                                                        </button>
+                                                    );
+                                                }
+
+                                                // If READY or ASSIGNED, show assignment dropdown
+                                                return (
+                                                    <div className="flex flex-col gap-1">
+                                                        {status === 'READY' && <span className="text-[10px] text-green-600 font-bold">READY FOR PICKUP</span>}
+                                                        <div className="flex items-center gap-2">
+                                                            <select
+                                                                className="text-xs border border-slate-300 rounded p-1 max-w-[120px] bg-white shadow-sm"
+                                                                value={log?.userId || ''}
+                                                                onChange={(e) => handleAssignDelivery(activeSub.id, e.target.value)}
+                                                            >
+                                                                <option value="">{status === 'ASSIGNED' ? 'Change Driver' : 'Assign Driver'}</option>
+                                                                {deliveryPartners.map(dp => (
+                                                                    <option key={dp.id} value={dp.id}>{dp.name}</option>
+                                                                ))}
+                                                            </select>
+                                                        </div>
+                                                        {status === 'ASSIGNED' && log.deliveryAgent && (
+                                                            <span className="text-[10px] text-blue-600 font-medium">Assigned to: {log.deliveryAgent.name}</span>
+                                                        )}
+                                                    </div>
+                                                );
+                                            })()}
+                                        </td>
+                                    </tr>
+                                )
+                            })}
+                            {customers.filter(c => c.subscriptions?.some((s: any) => s.status === 'ACTIVE')).length === 0 && (
+                                <tr>
+                                    <td colSpan={5} className="p-12 text-center text-slate-400">
+                                        <div className="flex flex-col items-center justify-center">
+                                            <div className="w-16 h-16 bg-slate-100 rounded-full flex items-center justify-center mb-4">
+                                                <MapPin size={32} className="text-slate-300" />
+                                            </div>
+                                            <h3 className="text-slate-900 font-medium mb-1">No Deliveries Today</h3>
+                                            <p className="text-xs text-slate-500 max-w-xs mx-auto">
+                                                There are no active subscriptions scheduled for delivery today. Use the "Add User" button to create new subscriptions.
+                                            </p>
+                                        </div>
                                     </td>
                                 </tr>
-                            ))}
+                            )}
                         </tbody>
                     </table>
                 </div>
 
+            </section>
+            <hr className="border-slate-200" />
+
+            {/* Menu Management */}
+            <section>
+                <div className="flex justify-between items-center mb-6">
+                    <h2 className="text-xl font-bold text-slate-900 flex items-center gap-2">
+                        <ClipboardList className="text-blue-600" /> Menu Management
+                    </h2>
+                    <div className="flex gap-2">
+                        <button onClick={() => setIsPlanModalOpen(true)} className="bg-slate-900 text-white px-4 py-2 rounded-lg text-sm font-bold flex items-center gap-2 hover:bg-slate-800">
+                            <Plus size={16} /> New Plan
+                        </button>
+                        <button onClick={() => setIsMenuItemModalOpen(true)} className="bg-blue-600 text-white px-4 py-2 rounded-lg text-sm font-bold flex items-center gap-2 hover:bg-blue-700">
+                            <Plus size={16} /> New Item
+                        </button>
+                    </div>
+                </div>
+
+                {/* Plans & Items List */}
+                <div className="space-y-8">
+                    {plans.map(plan => (
+                        <div key={plan.id} className="bg-white border border-slate-200 rounded-xl overflow-hidden shadow-sm">
+                            <div className="bg-slate-50 p-4 border-b border-slate-200 flex justify-between items-center">
+                                <h3 className="font-bold text-lg text-slate-800">{plan.name} <span className="text-xs text-slate-500 font-normal ml-2">({plan.slug})</span></h3>
+                                <button
+                                    onClick={() => handleDeletePlan(plan.id)}
+                                    className="text-red-500 hover:text-red-700 hover:bg-red-50 p-2 rounded transition-colors flex items-center gap-1 text-sm font-medium"
+                                >
+                                    <Trash2 size={16} /> Delete Plan
+                                </button>
+                            </div>
+                            <div className="overflow-x-auto">
+                                <table className="w-full text-left min-w-[800px]">
+                                    <thead className="bg-white text-xs font-semibold text-slate-500 uppercase border-b border-slate-100">
+                                        <tr>
+                                            <th className="px-6 py-3">Image</th>
+                                            <th className="px-6 py-3">Name</th>
+                                            <th className="px-6 py-3">Stats</th>
+                                            <th className="px-6 py-3">Description</th>
+                                            <th className="px-6 py-3">Price</th>
+                                            <th className="px-6 py-3 text-right">Action</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody className="divide-y divide-slate-50">
+                                        {plan.items?.map((item: any) => (
+                                            <tr key={item.id} className="hover:bg-slate-50">
+                                                <td className="px-6 py-4">
+                                                    <div className="w-12 h-12 rounded-lg bg-slate-100 overflow-hidden border border-slate-200">
+                                                        {item.image ? (
+                                                            <img src={`${(import.meta as any).env.VITE_API_URL?.replace('/api', '')}${item.image}`} alt={item.name} className="w-full h-full object-cover" />
+                                                        ) : (
+                                                            <div className="w-full h-full flex items-center justify-center text-slate-300"><Utensils size={16} /></div>
+                                                        )}
+                                                    </div>
+                                                </td>
+                                                <td className="px-6 py-4">
+                                                    <p className="font-medium text-slate-900">{item.name}</p>
+                                                    <p className="text-xs text-slate-400">{item.slug}</p>
+                                                </td>
+                                                <td className="px-6 py-4 text-xs text-slate-500">
+                                                    <p>{item.calories} kCal</p>
+                                                    <p>{item.proteinAmount}g Protein</p>
+                                                </td>
+                                                <td className="px-6 py-4 text-sm text-slate-600 max-w-xs truncate" title={item.description}>
+                                                    {item.description}
+                                                </td>
+                                                <td className="px-6 py-4 font-bold text-slate-900">₹{item.price}</td>
+                                                <td className="px-6 py-4 text-right">
+                                                    <button onClick={() => handleDeleteMenuItem(item.id)} className="text-red-500 hover:text-red-700 p-2"><Trash2 size={16} /></button>
+                                                </td>
+                                            </tr>
+                                        ))}
+                                        {(!plan.items || plan.items.length === 0) && (
+                                            <tr><td colSpan={6} className="p-6 text-center text-slate-400 text-sm">No items in this plan yet.</td></tr>
+                                        )}
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
+                    ))}
+                    {plans.length === 0 && (
+                        <div className="p-12 text-center border-2 border-dashed border-slate-300 rounded-xl">
+                            <p className="text-slate-500 mb-4">No plans created yet.</p>
+                            <button onClick={() => setIsPlanModalOpen(true)} className="text-blue-600 font-bold hover:underline">Create your first plan</button>
+                        </div>
+                    )}
+                </div>
+
                 {/* Addons Section */}
-                <div className="mt-8 bg-slate-50 p-6 rounded-xl border border-slate-200">
+                <div className="mt-12 bg-slate-50 p-6 rounded-xl border border-slate-200">
                     <h3 className="font-bold text-slate-900 mb-4 flex justify-between">
                         Manage Add-Ons
                     </h3>
@@ -416,12 +673,20 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onBack }) => {
                                         </span>
                                     </td>
                                     <td className="px-6 py-4">
-                                        {customer.subscription ? (
-                                            <div className="flex items-center gap-2">
-                                                <span className={`w-2 h-2 rounded-full ${customer.subscription.protein === 'CHICKEN' ? 'bg-orange-400' : 'bg-green-400'}`}></span>
-                                                <span className="text-sm">{customer.subscription.protein}</span>
-                                            </div>
-                                        ) : <span className="text-xs text-slate-400">No Plan</span>}
+                                        {(() => {
+                                            const activeSub = customer.subscriptions?.find((s: any) => s.status === 'ACTIVE');
+                                            const sub = activeSub || customer.subscriptions?.[0]; // Fallback to first
+
+                                            if (sub) {
+                                                return (
+                                                    <div className="flex items-center gap-2">
+                                                        <span className={`w-2 h-2 rounded-full ${sub.protein === 'CHICKEN' ? 'bg-orange-400' : 'bg-green-400'}`}></span>
+                                                        <span className="text-sm">{sub.protein} ({sub.status})</span>
+                                                    </div>
+                                                );
+                                            }
+                                            return <span className="text-xs text-slate-400">No Plan</span>;
+                                        })()}
                                     </td>
                                     <td className="px-6 py-4 text-right flex justify-end gap-2">
                                         <button onClick={() => setSelectedCustomer(customer)} className="text-blue-600 hover:text-blue-800 text-sm">Details</button>
@@ -434,10 +699,159 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onBack }) => {
                 </div>
             </div>
         );
+
+    };
+
+    const handleSubscriptionAction = async (subId: number, action: 'PAUSED' | 'CANCELLED' | 'ACTIVE') => {
+        if (!confirm(`Are you sure you want to change status to ${action}?`)) return;
+        try {
+            await admin.updateSubscription(subId, { status: action });
+            // Update local state
+            const updatedCustomers = customers.map(c => {
+                if (c.subscriptions?.some((s: any) => s.id === subId)) {
+                    return {
+                        ...c,
+                        subscriptions: c.subscriptions.map((s: any) => s.id === subId ? { ...s, status: action } : s)
+                    };
+                }
+                return c;
+            });
+            setCustomers(updatedCustomers);
+            if (selectedCustomer) {
+                setSelectedCustomer({ ...selectedCustomer, subscription: { ...selectedCustomer.subscription, status: action } });
+            }
+            alert(`Subscription ${action}`);
+        } catch (e) {
+            alert('Failed to update subscription');
+        }
+    };
+
+    const renderCustomerDetails = () => {
+        if (!selectedCustomer) return null;
+        // Prefer active subscription, else take top one
+        const sub = selectedCustomer.subscriptions?.find((s: any) => s.status === 'ACTIVE') || selectedCustomer.subscriptions?.[0];
+
+        return (
+            <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/50 backdrop-blur-sm p-4 animate-in fade-in">
+                <div className="bg-white rounded-xl shadow-xl w-full max-w-4xl max-h-[90vh] overflow-y-auto">
+                    <div className="p-6 border-b border-slate-200 flex justify-between items-center sticky top-0 bg-white z-10">
+                        <div className="flex items-center gap-4">
+                            <div className="w-12 h-12 bg-blue-100 text-blue-600 rounded-full flex items-center justify-center text-xl font-bold">
+                                {selectedCustomer.name.charAt(0)}
+                            </div>
+                            <div>
+                                <h2 className="text-xl font-bold text-slate-900">{selectedCustomer.name}</h2>
+                                <p className="text-sm text-slate-500">{selectedCustomer.email} • {selectedCustomer.phone || 'No Phone'}</p>
+                            </div>
+                        </div>
+                        <button onClick={() => setSelectedCustomer(null)} className="p-2 hover:bg-slate-100 rounded-full text-slate-500"><X size={24} /></button>
+                    </div>
+
+                    <div className="p-6 space-y-8">
+                        {/* ACTIVE SUBSCRIPTION */}
+                        <section>
+                            <h3 className="font-bold text-slate-900 mb-4 flex items-center gap-2"><CreditCard size={20} className="text-blue-600" /> Active Subscription</h3>
+                            {sub ? (
+                                <div className="bg-slate-50 border border-slate-200 rounded-xl p-6 relative overflow-hidden">
+                                    <div className={`absolute top-0 right-0 px-4 py-2 text-xs font-bold rounded-bl-xl ${sub.status === 'ACTIVE' ? 'bg-green-100 text-green-700' : sub.status === 'PAUSED' ? 'bg-yellow-100 text-yellow-700' : 'bg-red-100 text-red-700'}`}>
+                                        {sub.status}
+                                    </div>
+                                    <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                                        <div>
+                                            <p className="text-slate-500 text-xs uppercase font-bold">Plan Type</p>
+                                            <p className="font-bold text-lg">{sub.protein} ({sub.mealsPerDay} Meal/Day)</p>
+                                        </div>
+                                        <div>
+                                            <p className="text-slate-500 text-xs uppercase font-bold">Dates</p>
+                                            <p className="font-medium text-slate-800">{new Date(sub.startDate).toLocaleDateString()} - {new Date(sub.endDate).toLocaleDateString()}</p>
+                                        </div>
+                                        <div>
+                                            <p className="text-slate-500 text-xs uppercase font-bold">Remaining</p>
+                                            <p className="font-medium text-slate-800">{sub.daysRemaining} Days / {sub.pausesRemaining} Pauses</p>
+                                        </div>
+                                    </div>
+
+                                    {/* ADDOONS */}
+                                    {sub.addons && (
+                                        <div className="mt-4 pt-4 border-t border-slate-200">
+                                            <p className="text-slate-500 text-xs uppercase font-bold mb-2">Active Add-Ons</p>
+                                            <div className="flex flex-wrap gap-2">
+                                                {Object.keys(sub.addons).map(key => {
+                                                    const item = sub.addons[key];
+                                                    const addonDef = addOns.find(a => a.id === parseInt(key)) || { name: 'Unknown' }; // Find name
+                                                    if (item.quantity === 0) return null;
+                                                    return (
+                                                        <span key={key} className="bg-white border border-slate-200 px-2 py-1 rounded text-xs font-medium">
+                                                            {addonDef.name} x{item.quantity} ({item.frequency})
+                                                        </span>
+                                                    )
+                                                })}
+                                            </div>
+                                        </div>
+                                    )}
+
+                                    {/* ACTIONS */}
+                                    <div className="mt-6 flex gap-3">
+                                        {sub.status === 'ACTIVE' && (
+                                            <button onClick={() => handleSubscriptionAction(sub.id, 'PAUSED')} className="px-4 py-2 bg-yellow-100 text-yellow-700 rounded-lg text-sm font-bold hover:bg-yellow-200 transition-colors">
+                                                Pause Subscription
+                                            </button>
+                                        )}
+                                        {sub.status === 'PAUSED' && (
+                                            <button onClick={() => handleSubscriptionAction(sub.id, 'ACTIVE')} className="px-4 py-2 bg-green-100 text-green-700 rounded-lg text-sm font-bold hover:bg-green-200 transition-colors">
+                                                Resume Subscription
+                                            </button>
+                                        )}
+                                        {sub.status !== 'CANCELLED' && (
+                                            <button onClick={() => handleSubscriptionAction(sub.id, 'CANCELLED')} className="px-4 py-2 bg-red-100 text-red-700 rounded-lg text-sm font-bold hover:bg-red-200 transition-colors">
+                                                Cancel Plan
+                                            </button>
+                                        )}
+                                    </div>
+                                </div>
+                            ) : (
+                                <p className="text-slate-500 italic">No active subscription.</p>
+                            )}
+                        </section>
+
+                        {/* ORDER HISTORY */}
+                        <section>
+                            <h3 className="font-bold text-slate-900 mb-4 flex items-center gap-2"><ClipboardList size={20} className="text-blue-600" /> Order History</h3>
+                            <div className="border border-slate-200 rounded-xl overflow-hidden">
+                                <table className="w-full text-left text-sm">
+                                    <thead className="bg-slate-50 border-b border-slate-200 text-slate-500">
+                                        <tr>
+                                            <th className="px-4 py-3">Date</th>
+                                            <th className="px-4 py-3">Plan</th>
+                                            <th className="px-4 py-3 text-right">Amount</th>
+                                            <th className="px-4 py-3">Status</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody className="divide-y divide-slate-100">
+                                        {selectedCustomer.orders?.map((order: any) => (
+                                            <tr key={order.id}>
+                                                <td className="px-4 py-3">{new Date(order.createdAt).toLocaleDateString()}</td>
+                                                <td className="px-4 py-3">{order.protein} / {order.days} Days</td>
+                                                <td className="px-4 py-3 text-right">₹{order.totalPrice}</td>
+                                                <td className="px-4 py-3"><span className="bg-green-100 text-green-800 text-xs px-2 py-1 rounded-full">{order.status}</span></td>
+                                            </tr>
+                                        ))}
+                                        {(!selectedCustomer.orders || selectedCustomer.orders.length === 0) && (
+                                            <tr><td colSpan={4} className="p-4 text-center text-slate-400">No previous orders</td></tr>
+                                        )}
+                                    </tbody>
+                                </table>
+                            </div>
+                        </section>
+                    </div>
+
+                </div>
+            </div>
+        );
     };
 
     return (
-        <div className="min-h-screen bg-slate-50 font-sans text-slate-900 flex overflow-hidden">
+        <div className="min-h-screen bg-slate-50 font-professional text-slate-900 flex overflow-hidden">
 
             {/* SIDEBAR */}
             <aside className={`fixed inset-y-0 left-0 z-50 w-64 bg-slate-900 text-slate-300 flex flex-col shadow-xl transition-transform duration-300 ease-in-out ${isSidebarOpen ? 'translate-x-0' : '-translate-x-full'} md:translate-x-0 md:static md:h-screen shrink-0`}>
@@ -479,6 +893,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onBack }) => {
                     {activeView === 'dashboard' && renderDashboardOverview()}
                     {activeView === 'customers' && renderCustomerList()}
                     {activeView === 'menu' && renderKitchenMenu()}
+                    {renderCustomerDetails()}
                 </div>
             </main>
 
@@ -489,16 +904,108 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onBack }) => {
                         <h2 className="text-xl font-bold mb-4">Add New User</h2>
                         <form onSubmit={handleCreateUser} className="space-y-4">
                             <input name="name" placeholder="Full Name" required className="w-full p-2 border rounded" />
-                            <input name="email" type="email" placeholder="Email" required className="w-full p-2 border rounded" />
-                            <input name="password" type="password" placeholder="Password" required className="w-full p-2 border rounded" />
+                            <input name="email" type="email" placeholder="Email Address" required className="w-full p-2 border rounded" />
+                            <input name="phone" placeholder="Phone Number" className="w-full p-2 border rounded" />
                             <select name="role" className="w-full p-2 border rounded">
-                                <option value="user">User (Client)</option>
-                                <option value="delivery">Delivery Partner</option>
+                                <option value="user">User</option>
                                 <option value="admin">Admin</option>
+                                <option value="delivery">Delivery Partner (Rider)</option>
+                                <option value="kitchen">Kitchen Staff</option>
                             </select>
-                            <div className="flex justify-end gap-2 mt-4">
-                                <button type="button" onClick={() => setShowCreateUserModal(false)} className="px-4 py-2 text-slate-500">Cancel</button>
-                                <button type="submit" className="px-4 py-2 bg-blue-600 text-white rounded">Create User</button>
+                            <input name="password" type="password" placeholder="Password" required className="w-full p-2 border rounded" />
+                            <div className="flex justify-end gap-2 pt-2">
+                                <button type="button" onClick={() => setShowCreateUserModal(false)} className="px-4 py-2 text-slate-600 hover:bg-slate-100 rounded">Cancel</button>
+                                <button type="submit" className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700">Create User</button>
+                            </div>
+                        </form>
+                    </div>
+                </div>
+            )}
+
+            {/* ADD PLAN MODAL */}
+            {isPlanModalOpen && (
+                <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/50 backdrop-blur-sm">
+                    <div className="bg-white p-6 rounded-xl shadow-xl w-full max-w-sm">
+                        <h2 className="text-xl font-bold mb-4">Create New Plan Type</h2>
+                        <form onSubmit={handleCreatePlan} className="space-y-4">
+                            <div>
+                                <label className="block text-xs font-bold text-slate-500 mb-1">Plan Name (e.g. Keto Plan)</label>
+                                <input value={newPlan.name} onChange={e => setNewPlan({ ...newPlan, name: e.target.value })} className="w-full p-2 border rounded" required />
+                            </div>
+                            <div>
+                                <label className="block text-xs font-bold text-slate-500 mb-1">Slug (e.g. KETO)</label>
+                                <input value={newPlan.slug} onChange={e => setNewPlan({ ...newPlan, slug: e.target.value })} className="w-full p-2 border rounded uppercase" required />
+                            </div>
+                            <div className="flex justify-end gap-2 pt-2">
+                                <button type="button" onClick={() => setIsPlanModalOpen(false)} className="px-4 py-2 text-slate-600 hover:bg-slate-100 rounded">Cancel</button>
+                                <button type="submit" className="px-4 py-2 bg-slate-900 text-white rounded hover:bg-slate-800">Create Plan</button>
+                            </div>
+                        </form>
+                    </div>
+                </div>
+            )}
+
+            {/* ADD MENU ITEM MODAL */}
+            {isMenuItemModalOpen && (
+                <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/50 backdrop-blur-sm p-4">
+                    <div className="bg-white p-6 rounded-xl shadow-xl w-full max-w-lg max-h-[90vh] overflow-y-auto">
+                        <h2 className="text-xl font-bold mb-4">Add Menu Item</h2>
+                        <form onSubmit={handleCreateMenuItem} className="space-y-4">
+                            <div>
+                                <label className="block text-xs font-bold text-slate-500 mb-1">Select Plan</label>
+                                <select
+                                    className="w-full p-2 border rounded"
+                                    value={selectedPlanId || ''}
+                                    onChange={e => setSelectedPlanId(parseInt(e.target.value))}
+                                    required
+                                >
+                                    <option value="">-- Choose Plan --</option>
+                                    {plans.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
+                                </select>
+                            </div>
+                            <div className="grid grid-cols-2 gap-4">
+                                <div>
+                                    <label className="block text-xs font-bold text-slate-500 mb-1">Name</label>
+                                    <input value={newMenuItem.name} onChange={e => setNewMenuItem({ ...newMenuItem, name: e.target.value })} className="w-full p-2 border rounded" required />
+                                </div>
+                                <div>
+                                    <label className="block text-xs font-bold text-slate-500 mb-1">Slug (Unique ID)</label>
+                                    <input value={newMenuItem.slug} onChange={e => setNewMenuItem({ ...newMenuItem, slug: e.target.value })} className="w-full p-2 border rounded uppercase" required />
+                                </div>
+                            </div>
+                            <div>
+                                <label className="block text-xs font-bold text-slate-500 mb-1">Description</label>
+                                <textarea value={newMenuItem.description} onChange={e => setNewMenuItem({ ...newMenuItem, description: e.target.value })} className="w-full p-2 border rounded" rows={3} required />
+                            </div>
+                            <div className="grid grid-cols-3 gap-4">
+                                <div>
+                                    <label className="block text-xs font-bold text-slate-500 mb-1">Price (₹)</label>
+                                    <input type="number" value={newMenuItem.price} onChange={e => setNewMenuItem({ ...newMenuItem, price: parseInt(e.target.value) })} className="w-full p-2 border rounded" required />
+                                </div>
+                                <div>
+                                    <label className="block text-xs font-bold text-slate-500 mb-1">Protein (g)</label>
+                                    <input type="number" value={newMenuItem.proteinAmount} onChange={e => setNewMenuItem({ ...newMenuItem, proteinAmount: parseInt(e.target.value) })} className="w-full p-2 border rounded" required />
+                                </div>
+                                <div>
+                                    <label className="block text-xs font-bold text-slate-500 mb-1">Calories</label>
+                                    <input type="number" value={newMenuItem.calories} onChange={e => setNewMenuItem({ ...newMenuItem, calories: parseInt(e.target.value) })} className="w-full p-2 border rounded" required />
+                                </div>
+                            </div>
+                            <div>
+                                <label className="block text-xs font-bold text-slate-500 mb-1">Theme Color (Hex)</label>
+                                <div className="flex gap-2">
+                                    <input type="color" value={newMenuItem.color} onChange={e => setNewMenuItem({ ...newMenuItem, color: e.target.value })} className="h-10 w-20 p-1 border rounded" />
+                                    <input value={newMenuItem.color} onChange={e => setNewMenuItem({ ...newMenuItem, color: e.target.value })} className="flex-1 p-2 border rounded" />
+                                </div>
+                            </div>
+                            <div>
+                                <label className="block text-xs font-bold text-slate-500 mb-1">Upload Image</label>
+                                <input type="file" accept="image/*" onChange={e => setNewMenuItem({ ...newMenuItem, image: e.target.files?.[0] || null })} className="w-full p-2 border rounded bg-slate-50" />
+                            </div>
+
+                            <div className="flex justify-end gap-2 pt-4">
+                                <button type="button" onClick={() => setIsMenuItemModalOpen(false)} className="px-4 py-2 text-slate-600 hover:bg-slate-100 rounded">Cancel</button>
+                                <button type="submit" className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700">Save Item</button>
                             </div>
                         </form>
                     </div>

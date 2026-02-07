@@ -36,7 +36,7 @@ export const DeliveryDashboard: React.FC<DeliveryDashboardProps> = ({ onBack }) 
     }, []);
 
     return (
-        <div className="min-h-screen bg-slate-50 font-sans text-slate-900">
+        <div className="min-h-screen bg-slate-50 font-professional text-slate-900">
             <header className="bg-slate-900 text-white shadow-md sticky top-0 z-30">
                 <div className="max-w-md mx-auto px-4 h-16 flex items-center justify-between">
                     <div className="flex items-center gap-4">
@@ -44,7 +44,7 @@ export const DeliveryDashboard: React.FC<DeliveryDashboardProps> = ({ onBack }) 
                             <ArrowLeft size={20} />
                         </button>
                         <div>
-                            <h1 className="text-base font-semibold leading-tight">Delivery Agent App</h1>
+                            <h1 className="text-base font-semibold leading-tight">Delivery App</h1>
                             <p className="text-xs text-slate-400">Route #405 • Pune</p>
                         </div>
                     </div>
@@ -94,17 +94,49 @@ export const DeliveryDashboard: React.FC<DeliveryDashboardProps> = ({ onBack }) 
                                 </div>
 
                                 <div className="grid grid-cols-2 gap-3 mb-3">
-                                    <a href={`tel:${item.phone}`} className="flex items-center justify-center gap-2 py-2.5 border border-slate-300 rounded-lg text-sm font-semibold text-slate-700 hover:bg-slate-50 transition-colors">
-                                        <Phone size={16} />
-                                        Call
-                                    </a>
-                                    <button className="flex items-center justify-center gap-2 py-2.5 bg-blue-600 border border-transparent rounded-lg text-sm font-semibold text-white hover:bg-blue-700 transition-colors shadow-sm">
+                                    {item.phone && item.phone !== 'N/A' && (
+                                        <a href={`tel:${item.phone}`} className="flex items-center justify-center gap-2 py-2.5 bg-white border-2 border-gray-200 rounded-lg text-sm font-semibold text-gray-700 hover:bg-gray-50 transition-colors shadow-sm">
+                                            <Phone size={16} />
+                                            Call
+                                        </a>
+                                    )}
+                                    <button
+                                        onClick={() => {
+                                            if ((item as any).lat && (item as any).lng) {
+                                                window.open(`https://www.google.com/maps/dir/?api=1&destination=${(item as any).lat},${(item as any).lng}`, '_blank');
+                                            } else {
+                                                alert("No location data for this order.");
+                                            }
+                                        }}
+                                        className="flex items-center justify-center gap-2 py-2.5 bg-blue-600 border border-transparent rounded-lg text-sm font-semibold text-white hover:bg-blue-700 transition-colors shadow-sm"
+                                    >
                                         <Navigation size={16} />
-                                        Map
+                                        Navigate
                                     </button>
                                 </div>
 
-                                <button className="w-full flex items-center justify-center gap-2 py-3 bg-green-600 text-white rounded-lg text-sm font-bold hover:bg-green-700 transition-colors shadow-sm">
+                                <button
+                                    onClick={() => {
+                                        if (confirm("Confirm delivery for " + item.customerName + "?")) {
+                                            navigator.geolocation.getCurrentPosition(async (pos) => {
+                                                try {
+                                                    await delivery.confirm({
+                                                        subscriptionId: item.id,
+                                                        lat: pos.coords.latitude,
+                                                        lng: pos.coords.longitude
+                                                    });
+                                                    alert("Delivery confirmed!");
+                                                    // Optimistic update or refetch
+                                                    setDeliveries(deliveries.filter(d => d.id !== item.id));
+                                                } catch (e) {
+                                                    alert("Failed to confirm delivery API");
+                                                }
+                                            }, (err) => {
+                                                alert("Location access required to confirm delivery!");
+                                            });
+                                        }
+                                    }}
+                                    className="w-full flex items-center justify-center gap-2 py-3 bg-green-600 text-white rounded-lg text-sm font-bold hover:bg-green-700 transition-colors shadow-sm">
                                     <CheckCircle size={18} />
                                     CONFIRM DELIVERY
                                 </button>

@@ -1,9 +1,10 @@
 import express from 'express';
 import { authenticateToken } from '../middleware/authMiddleware';
+import * as adminController from '../controllers/adminController';
 import {
     getAllUsers, createUser, deleteUser,
     getMenu, addMenuItem, updateMenuItem, deleteMenuItem,
-    getAddOns, addAddOn, deleteAddOn
+    getAddOns, addAddOn, deleteAddOn, updateSubscription
 } from '../controllers/adminController';
 
 const router = express.Router();
@@ -43,5 +44,12 @@ router.delete('/menu/:id', isAdmin, deleteMenuItem);
 router.get('/addons', getAddOns); // Anyone can read addons
 router.post('/addons', isAdmin, addAddOn);
 router.delete('/addons/:id', isAdmin, deleteAddOn);
+
+// SUBSCRIPTIONS
+router.put('/subscriptions/:id', isAdmin, updateSubscription);
+
+router.get('/delivery-partners', adminController.getDeliveryPartners);
+router.post('/assign-delivery', adminController.assignDelivery);
+router.post('/mark-ready', adminController.markReady);
 
 export default router;

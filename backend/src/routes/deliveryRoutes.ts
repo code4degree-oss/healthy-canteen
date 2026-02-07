@@ -1,10 +1,11 @@
 import express from 'express';
-import { getDeliveryQueue } from '../controllers/deliveryController';
-import { authenticateToken } from '../middleware/authMiddleware';
+import * as deliveryController from '../controllers/deliveryController';
+import { authenticateToken, authorizeRole } from '../middleware/authMiddleware';
 
 const router = express.Router();
 
 // Should be protected, ideally check for 'delivery' role too, but auth is enough for now
-router.get('/queue', authenticateToken, getDeliveryQueue);
+router.get('/queue', authenticateToken, authorizeRole(['admin', 'delivery']), deliveryController.getDeliveryQueue);
+router.post('/confirm', authenticateToken, authorizeRole(['admin', 'delivery']), deliveryController.confirmDelivery);
 
 export default router;

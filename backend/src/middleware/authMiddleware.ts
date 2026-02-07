@@ -19,3 +19,13 @@ export const authenticateToken = (req: Request, res: Response, next: NextFunctio
         res.status(403).json({ message: 'Invalid token.' });
     }
 };
+
+export const authorizeRole = (roles: string[]) => {
+    return (req: Request, res: Response, next: NextFunction) => {
+        const user = (req as any).user;
+        if (!user || !roles.includes(user.role)) {
+            return res.status(403).json({ message: 'Access denied. Insufficient permissions.' });
+        }
+        next();
+    };
+};

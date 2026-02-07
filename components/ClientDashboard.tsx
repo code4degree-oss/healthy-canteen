@@ -13,9 +13,15 @@ export const ClientDashboard: React.FC<ClientDashboardProps> = ({ onBack }) => {
     const [subscription, setSubscription] = useState<UserSubscription | null>(null);
     const [orderHistory, setOrderHistory] = useState<OrderHistoryItem[]>([]);
     const [showAddonModal, setShowAddonModal] = useState<AddOn | null>(null);
+    const [userName, setUserName] = useState("GYM RAT");
     const [loading, setLoading] = useState(true);
 
     useEffect(() => {
+        const user = JSON.parse(localStorage.getItem('user') || '{}');
+        if (user.name) {
+            setUserName(user.name);
+        }
+
         const fetchData = async () => {
             try {
                 const [subRes, ordersRes] = await Promise.all([
@@ -113,7 +119,7 @@ export const ClientDashboard: React.FC<ClientDashboardProps> = ({ onBack }) => {
                 {/* Header Greeting */}
                 <div className="mb-8 md:mb-12 flex flex-col md:flex-row justify-between items-start md:items-end gap-6">
                     <div>
-                        <h1 className="font-heading text-4xl md:text-6xl text-quirky-black mb-2">HELLO, GYM RAT 👋</h1>
+                        <h1 className="font-heading text-4xl md:text-6xl text-quirky-black mb-2">HELLO, {userName.toUpperCase()} 👋</h1>
                         <p className="font-body text-lg md:text-xl">Let's check your gains status.</p>
                     </div>
                     {subscription ? (

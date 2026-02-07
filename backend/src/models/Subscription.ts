@@ -11,6 +11,7 @@ class Subscription extends Model {
     public endDate!: Date;
     public status!: string; // ACTIVE, PAUSED, EXPIRED
     public daysRemaining!: number;
+    public pausesRemaining!: number;
     public protein!: string;
     public mealsPerDay!: number;
     public readonly createdAt!: Date;
@@ -48,6 +49,10 @@ Subscription.init(
             type: DataTypes.DATEONLY,
             allowNull: false,
         },
+        deliveryAddress: {
+            type: DataTypes.STRING,
+            allowNull: true,
+        },
         status: {
             type: DataTypes.STRING,
             defaultValue: 'ACTIVE',
@@ -63,6 +68,15 @@ Subscription.init(
         mealsPerDay: {
             type: DataTypes.INTEGER,
             allowNull: false
+        },
+        pausesRemaining: {
+            type: DataTypes.INTEGER,
+            defaultValue: 3
+        },
+        addons: {
+            type: DataTypes.JSON,
+            allowNull: true,
+            defaultValue: []
         }
     },
     {
@@ -72,10 +86,14 @@ Subscription.init(
 );
 
 // Associations
-User.hasOne(Subscription, { foreignKey: 'userId' });
+User.hasMany(Subscription, { foreignKey: 'userId', as: 'subscriptions' });
 Subscription.belongsTo(User, { foreignKey: 'userId' });
 
 Order.hasOne(Subscription, { foreignKey: 'orderId' });
 Subscription.belongsTo(Order, { foreignKey: 'orderId' });
+
+import DeliveryLog from './DeliveryLog';
+Subscription.hasMany(DeliveryLog, { foreignKey: 'subscriptionId', as: 'deliveryLogs' });
+DeliveryLog.belongsTo(Subscription, { foreignKey: 'subscriptionId' }); // Defined here to avoid circular dep
 
 export default Subscription;

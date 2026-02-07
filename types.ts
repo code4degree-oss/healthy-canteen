@@ -13,7 +13,9 @@ export interface PricingTier {
 
 export enum ProteinType {
   CHICKEN = 'CHICKEN',
-  PANEER = 'PANEER'
+  PANEER = 'PANEER',
+  VEGAN = 'VEGAN',
+  SALAD = 'SALAD'
 }
 
 export enum MealType {
@@ -54,38 +56,38 @@ export interface OrderConfig {
 
 // New Types for Backend Readiness
 export interface UserSubscription {
-    id: string;
-    protein: ProteinType;
-    startDate: string;
-    totalDays: number;
-    daysRemaining: number;
-    status: 'ACTIVE' | 'PAUSED' | 'EXPIRED';
-    mealsPerDay: number;
-    addons: AddOnSelection[]; // Track active subscription addons
+  id: string;
+  protein: ProteinType;
+  startDate: string;
+  totalDays: number;
+  daysRemaining: number;
+  status: 'ACTIVE' | 'PAUSED' | 'EXPIRED';
+  mealsPerDay: number;
+  addons: AddOnSelection[]; // Track active subscription addons
 }
 
 export interface DailyKitchenStats {
-    chickenCount: number;
-    paneerCount: number;
-    addonsCount: Record<string, number>;
+  chickenCount: number;
+  paneerCount: number;
+  addonsCount: Record<string, number>;
 }
 
 // --- ADMIN TYPES ---
 export interface OrderHistoryItem {
-    orderId: string;
-    date: string;
-    amount: number;
-    description: string;
-    status: 'PAID' | 'PENDING' | 'FAILED';
+  orderId: string;
+  date: string;
+  amount: number;
+  description: string;
+  status: 'PAID' | 'PENDING' | 'FAILED';
 }
 
 export interface CustomerProfile {
-    id: string;
-    name: string;
-    email: string;
-    phone: string;
-    address: string;
-    subscription: UserSubscription;
-    orderHistory: OrderHistoryItem[];
-    notes?: string;
+  id: string;
+  name: string;
+  email: string;
+  phone: string;
+  address: string;
+  subscription: UserSubscription;
+  orderHistory: OrderHistoryItem[];
+  notes?: string;
 }

@@ -1,4 +1,5 @@
 import { Request, Response } from 'express';
+import { Op } from 'sequelize';
 import User from '../models/User';
 import MenuItem from '../models/MenuItem';
 import AddOn from '../models/AddOn';
@@ -6,13 +7,22 @@ import Order from '../models/Order';
 import Subscription from '../models/Subscription';
 import bcrypt from 'bcryptjs';
 
+import DeliveryLog from '../models/DeliveryLog';
+
 // --- USERS ---
 
 export const getAllUsers = async (req: Request, res: Response) => {
     try {
         const users = await User.findAll({
             attributes: { exclude: ['password'] },
-            include: [Order, Subscription]
+            include: [
+                { model: Order, as: 'orders' },
+                {
+                    model: Subscription,
+                    as: 'subscriptions',
+                    include: [{ model: DeliveryLog, as: 'deliveryLogs' }]
+                }
+            ]
         });
         res.json(users);
     } catch (error) {
@@ -108,5 +118,114 @@ export const deleteAddOn = async (req: Request, res: Response) => {
         res.json({ message: 'Addon deleted' });
     } catch (error) {
         res.status(500).json({ message: 'Error deleting addon', error });
+    }
+};
+
+// --- SUBSCRIPTIONS ---
+
+export const updateSubscription = async (req: Request, res: Response) => {
+    try {
+        const { id } = req.params;
+        const { status, endDate, pausesRemaining } = req.body;
+
+        const sub = await Subscription.findByPk(id);
+        if (!sub) return res.status(404).json({ message: 'Subscription not found' });
+
+        if (status) sub.status = status;
+        if (endDate) sub.endDate = endDate;
+        if (pausesRemaining !== undefined) sub.pausesRemaining = pausesRemaining;
+
+        await sub.save();
+        res.json({ message: 'Subscription updated', subscription: sub });
+    } catch (error) {
+        res.status(500).json({ message: 'Error updating subscription', error });
+    }
+};
+// --- DELIVERY MANAGEMENT ---
+
+export const getDeliveryPartners = async (req: Request, res: Response) => {
+    try {
+        const partners = await User.findAll({
+            where: { role: 'delivery' },
+            attributes: ['id', 'name', 'phone', 'email']
+        });
+        res.json(partners);
+    } catch (error) {
+        res.status(500).json({ message: 'Error fetching delivery partners' });
+    }
+};
+
+export const assignDelivery = async (req: Request, res: Response) => {
+    try {
+        const { subscriptionId, deliveryUserId } = req.body;
+
+        // Check if a log already exists for today
+        const today = new Date();
+        const startOfDay = new Date(today.setHours(0, 0, 0, 0));
+        const endOfDay = new Date(today.setHours(23, 59, 59, 999));
+
+        let log = await DeliveryLog.findOne({
+            where: {
+                subscriptionId,
+                deliveryTime: {
+                    [Op.between]: [startOfDay, endOfDay]
+                }
+            }
+        });
+
+        if (log) {
+            // Update existing
+            log.userId = deliveryUserId;
+            log.status = 'ASSIGNED';
+            await log.save();
+        } else {
+            // Create new assignment
+            await DeliveryLog.create({
+                subscriptionId,
+                userId: deliveryUserId,
+                status: 'ASSIGNED',
+                deliveryTime: new Date() // Planned time (now)
+            });
+        }
+
+        res.json({ message: 'Delivery assigned successfully' });
+    } catch (error) {
+        console.error("Assign error", error);
+        res.status(500).json({ message: 'Error assigning delivery' });
+    }
+};
+
+export const markReady = async (req: Request, res: Response) => {
+    try {
+        const { subscriptionId } = req.body;
+
+        const today = new Date();
+        const startOfDay = new Date(today.setHours(0, 0, 0, 0));
+        const endOfDay = new Date(today.setHours(23, 59, 59, 999));
+
+        let log = await DeliveryLog.findOne({
+            where: {
+                subscriptionId,
+                deliveryTime: {
+                    [Op.between]: [startOfDay, endOfDay]
+                }
+            }
+        });
+
+        if (log) {
+            log.status = 'READY';
+            await log.save();
+        } else {
+            await DeliveryLog.create({
+                subscriptionId,
+                status: 'READY',
+                deliveryTime: new Date()
+            });
+        }
+
+        res.json({ message: 'Order marked as ready' });
+    } catch (error) {
+        console.error("Mark Ready error", error);
+        res.status(500).json({ message: 'Error marking order as ready' });
     }
 };

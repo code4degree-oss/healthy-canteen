@@ -54,6 +54,22 @@ Order.init(
             type: DataTypes.DATEONLY,
             allowNull: false,
         },
+        deliveryLat: {
+            type: DataTypes.FLOAT,
+            allowNull: true,
+        },
+        deliveryLng: {
+            type: DataTypes.FLOAT,
+            allowNull: true,
+        },
+        deliveryAddress: {
+            type: DataTypes.STRING,
+            allowNull: true,
+        },
+        addons: {
+            type: DataTypes.JSON, // Stores array of selected addons
+            allowNull: true
+        },
     },
     {
         sequelize,
@@ -62,7 +78,7 @@ Order.init(
 );
 
 // Define Association
-User.hasMany(Order, { foreignKey: 'userId' });
+User.hasMany(Order, { foreignKey: 'userId', as: 'orders' });
 Order.belongsTo(User, { foreignKey: 'userId' });
 
 export default Order;

@@ -3,6 +3,8 @@ import { QuirkyButton } from './QuirkyButton';
 import { ArrowLeft, Sparkles } from 'lucide-react';
 import { auth } from '../src/services/api';
 
+import { GoogleLogin, useGoogleOneTapLogin } from '@react-oauth/google';
+
 interface AuthPageProps {
     onLoginSuccess: (user: any) => void;
     onBack: () => void;
@@ -13,6 +15,27 @@ export const AuthPage: React.FC<AuthPageProps> = ({ onLoginSuccess, onBack }) =>
     const [form, setForm] = useState({ email: '', password: '', name: '', phone: '' });
     const [error, setError] = useState<string | null>(null);
     const [loading, setLoading] = useState(false);
+
+    const handleGoogleSuccess = async (credentialResponse: any) => {
+        try {
+            setLoading(true);
+            const res = await auth.googleLogin(credentialResponse.credential);
+            const { token, user } = res.data;
+            localStorage.setItem('token', token);
+            localStorage.setItem('user', JSON.stringify(user));
+            onLoginSuccess(user);
+        } catch (err) {
+            console.error(err);
+            setError('Google Login Failed');
+        } finally {
+            setLoading(false);
+        }
+    };
+
+    useGoogleOneTapLogin({
+        onSuccess: handleGoogleSuccess,
+        onError: () => console.log('Google One Tap Failed'),
+    });
 
     const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
@@ -146,6 +169,15 @@ export const AuthPage: React.FC<AuthPageProps> = ({ onLoginSuccess, onBack }) =>
                             {loading ? 'PROCESSING...' : (isLogin ? 'ENTER CANTEEN' : 'START EATING')}
                         </QuirkyButton>
                     </div>
+
+                    <div className="flex flex-col items-center gap-2 mt-4">
+                        <div className="w-full h-px bg-gray-300 my-2"></div>
+                        <GoogleLogin
+                            onSuccess={handleGoogleSuccess}
+                            onError={() => console.log('Login Failed')}
+                            useOneTap
+                        />
+                    </div>
                 </form>
 
                 <div className="mt-6 text-center border-t-2 border-dashed border-gray-300 pt-6">
@@ -157,7 +189,7 @@ export const AuthPage: React.FC<AuthPageProps> = ({ onLoginSuccess, onBack }) =>
                         {isLogin ? "DON'T HAVE AN ACCOUNT? SIGN UP" : "ALREADY A MEMBER? LOGIN"}
                     </button>
                 </div>
-            </div>
-        </div>
+            </div >
+        </div >
     );
 };

@@ -58,3 +58,45 @@ export const login = async (req: Request, res: Response) => {
         res.status(500).json({ message: 'Something went wrong', error });
     }
 };
+
+export const googleLogin = async (req: Request, res: Response) => {
+    try {
+        const { token } = req.body;
+        const { OAuth2Client } = require('google-auth-library');
+        const client = new OAuth2Client(process.env.GOOGLE_CLIENT_ID);
+
+        const ticket = await client.verifyIdToken({
+            idToken: token,
+            audience: process.env.GOOGLE_CLIENT_ID,
+        });
+        const payload = ticket.getPayload();
+
+        if (!payload) {
+            return res.status(400).json({ message: 'Invalid Google token' });
+        }
+
+        const { email, name, sub: googleId, picture } = payload;
+
+        // Check if user exists
+        let user = await User.findOne({ where: { email } });
+
+        if (!user) {
+            // Create new user
+            user = await User.create({
+                name: name || 'Google User',
+                email: email,
+                password: await bcrypt.hash(Math.random().toString(36).slice(-8), 10), // Random password
+                role: 'client', // Default role
+                // You might want to save googleId or pictureUrl if your model supports it
+            });
+        }
+
+        // Generate JWT
+        const jwtToken = jwt.sign({ id: user.id, role: user.role }, SECRET_KEY, { expiresIn: '1h' });
+
+        res.status(200).json({ token: jwtToken, user: { id: user.id, name: user.name, email: user.email, role: user.role } });
+    } catch (error) {
+        console.error('Google login error:', error);
+        res.status(500).json({ message: 'Google login failed', error });
+    }
+};

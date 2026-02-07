@@ -1,7 +1,7 @@
 import axios from 'axios';
 
 const api = axios.create({
-    baseURL: import.meta.env.VITE_API_URL || 'http://localhost:5000/api',
+    baseURL: (import.meta as any).env.VITE_API_URL || 'http://localhost:5000/api',
     headers: {
         'Content-Type': 'application/json',
     },
@@ -24,6 +24,7 @@ api.interceptors.request.use(
 export const auth = {
     register: (data: any) => api.post('/auth/register', data),
     login: (data: any) => api.post('/auth/login', data),
+    googleLogin: (token: string) => api.post('/auth/google', { token }),
 };
 
 export const orders = {
@@ -37,20 +38,41 @@ export const admin = {
     createUser: (data: any) => api.post('/admin/users', data),
     deleteUser: (id: string) => api.delete(`/admin/users/${id}`),
 
+    // Subscriptions
+    updateSubscription: (id: number, data: any) => api.put(`/admin/subscriptions/${id}`, data),
+
     // Menu (Public/Admin Mixed in backend, but accessed via these for management)
-    getMenu: () => api.get('/admin/menu'),
-    addMenuItem: (data: any) => api.post('/admin/menu', data),
-    updateMenuItem: (id: number, data: any) => api.put(`/admin/menu/${id}`, data),
-    deleteMenuItem: (id: number) => api.delete(`/admin/menu/${id}`),
+    // Menu Management
+    getMenu: () => api.get('/menu'),
+    updateMenu: () => api.get('/menu'), // Use same endpoint for now or specific refresh logic
+
+    // Admin Menu Operations
+    createPlan: (data: any) => api.post('/menu/plans', data),
+    deletePlan: (id: number) => api.delete(`/menu/plans/${id}`), // Placeholder if backend supports
+    addMenuItem: (data: FormData) => api.post('/menu/items', data, {
+        headers: { 'Content-Type': 'multipart/form-data' }
+    }),
+    updateMenuItem: (id: number, data: any) => api.put(`/menu/items/${id}`, data), // Ensure backend has this
+    deleteMenuItem: (id: number) => api.delete(`/menu/items/${id}`),
 
     // Addons
     getAddOns: () => api.get('/admin/addons'),
     addAddOn: (data: any) => api.post('/admin/addons', data),
     deleteAddOn: (id: number) => api.delete(`/admin/addons/${id}`),
+
+    // Delivery Assignment
+    getDeliveryPartners: () => api.get('/admin/delivery-partners'),
+    assignDelivery: (subscriptionId: number, deliveryUserId: number) => api.post('/admin/assign-delivery', { subscriptionId, deliveryUserId }),
+    markReady: (subscriptionId: number) => api.post('/admin/mark-ready', { subscriptionId }),
 };
 
 export const delivery = {
     getQueue: () => api.get('/delivery/queue'),
+    confirm: (data: any) => api.post('/delivery/confirm', data),
+};
+
+export const menu = {
+    getAll: () => api.get('/menu')
 };
 
 export default api;

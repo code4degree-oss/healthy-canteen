@@ -11,10 +11,19 @@ import { AuthPage } from './components/AuthPage';
 import { QuirkyButton } from './components/QuirkyButton';
 import { Logo } from './components/Logo';
 import { Shield, Bike, User, LogIn, LayoutDashboard, LogOut } from 'lucide-react';
+import { GoogleOAuthProvider } from '@react-oauth/google';
 
 type ViewState = 'home' | 'order' | 'admin' | 'delivery' | 'client' | 'auth';
 
 const App: React.FC = () => {
+  return (
+    <GoogleOAuthProvider clientId={import.meta.env.VITE_GOOGLE_CLIENT_ID}>
+      <AppContent />
+    </GoogleOAuthProvider>
+  );
+};
+
+const AppContent: React.FC = () => {
   const [scrolled, setScrolled] = useState(false);
   const [currentView, setCurrentView] = useState<ViewState>('home');
   // Mock Auth State
@@ -69,6 +78,9 @@ const App: React.FC = () => {
   }
 
   if (currentView === 'order') {
+    if (!isLoggedIn) {
+      return <AuthPage onLoginSuccess={handleLoginSuccess} onBack={() => navigateTo('home')} />;
+    }
     return <OrderFlowPage onBack={() => navigateTo('home')} />;
   }
 

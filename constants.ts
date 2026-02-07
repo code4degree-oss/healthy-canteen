@@ -13,13 +13,17 @@ export const CONTACT_INFO = {
 // Paneer: 6120 / 24 = 255
 // Short term rates might be higher, but let's base calculations on these benchmarks for consistency with the prompt.
 export const BASE_RATES = {
-    [ProteinType.CHICKEN]: 320, // Base single meal rate (discounted in bulk)
-    [ProteinType.PANEER]: 300   // Base single meal rate (discounted in bulk)
+  [ProteinType.CHICKEN]: 320, // Base single meal rate (discounted in bulk)
+  [ProteinType.PANEER]: 300,   // Base single meal rate (discounted in bulk)
+  [ProteinType.VEGAN]: 300,
+  [ProteinType.SALAD]: 300
 };
 
 export const SUBSCRIPTION_RATES = {
-    [ProteinType.CHICKEN]: 280, // Rate for 24+ days
-    [ProteinType.PANEER]: 255   // Rate for 24+ days
+  [ProteinType.CHICKEN]: 280, // Rate for 24+ days
+  [ProteinType.PANEER]: 255,   // Rate for 24+ days
+  [ProteinType.VEGAN]: 255,
+  [ProteinType.SALAD]: 255
 };
 
 export const MENU_ITEMS: Record<ProteinType, MenuItem> = {
@@ -38,6 +42,22 @@ export const MENU_ITEMS: Record<ProteinType, MenuItem> = {
     description: "200g Fresh Paneer. Naturally higher in fats. Prepared in various rotational styles.",
     image: "https://images.unsplash.com/photo-1565557623262-b51c2513a641?q=80&w=800&auto=format&fit=crop",
     color: "bg-quirky-pink"
+  },
+  [ProteinType.VEGAN]: {
+    name: "Vegan Meal",
+    calories: 650,
+    protein: 35,
+    description: "Plant-based power! Tofu, lentils, chickpeas, and fresh veggies prepared with love.",
+    image: "https://images.unsplash.com/photo-1512621776951-a57141f2eefd?q=80&w=800&auto=format&fit=crop",
+    color: "bg-quirky-green"
+  },
+  [ProteinType.SALAD]: {
+    name: "Salad Bowl",
+    calories: 450,
+    protein: 20,
+    description: "Fresh, crunchy & light. Mixed greens, exotic veggies, nuts, seeds & house dressing.",
+    image: "https://images.unsplash.com/photo-1512621776951-a57141f2eefd?q=80&w=800&auto=format&fit=crop", // Using generic healthy food image
+    color: "bg-quirky-blue"
   }
 };
 
