@@ -62,9 +62,18 @@ export const updatePlan = async (req: Request, res: Response) => {
 export const createPlan = async (req: Request, res: Response) => {
     try {
         const { name, slug } = req.body;
-        const plan = await Plan.create({ name, slug: slug.toUpperCase() });
+
+        if (!name) {
+            return res.status(400).json({ message: 'Plan name is required' });
+        }
+
+        // Auto-generate slug from name if not provided
+        const finalSlug = slug ? slug.toUpperCase() : name.toUpperCase().replace(/\s+/g, '_');
+
+        const plan = await Plan.create({ name, slug: finalSlug });
         res.status(201).json(plan);
     } catch (error) {
+        console.error('Create Plan Error:', error);
         res.status(500).json({ message: 'Failed to create plan', error });
     }
 };

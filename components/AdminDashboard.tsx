@@ -7,6 +7,8 @@ import {
     CreditCard, LayoutDashboard, Utensils, TrendingUp,
     Activity, DollarSign, ClipboardList, ChefHat, AlertCircle, Menu, Plus, Trash2
 } from 'lucide-react';
+import { AdminOverview } from './admin/AdminOverview';
+import { AdminCustomerList } from './admin/AdminCustomerList';
 
 interface AdminDashboardProps {
     onBack: () => void;
@@ -1029,8 +1031,17 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onBack }) => {
                 </header>
 
                 <div className="flex-1 overflow-y-auto p-4 md:p-8">
-                    {activeView === 'dashboard' && renderDashboardOverview()}
-                    {activeView === 'customers' && renderCustomerList()}
+                    {activeView === 'dashboard' && <AdminOverview stats={stats} />}
+                    {activeView === 'customers' && (
+                        <AdminCustomerList
+                            customers={customers}
+                            searchTerm={searchTerm}
+                            setSearchTerm={setSearchTerm}
+                            setSelectedCustomer={setSelectedCustomer}
+                            setShowCreateUserModal={setShowCreateUserModal}
+                            handleDeleteUser={handleDeleteUser}
+                        />
+                    )}
                     {activeView === 'menu' && renderKitchenMenu()}
                     {renderCustomerDetails()}
                 </div>

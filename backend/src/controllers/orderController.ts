@@ -23,7 +23,7 @@ import MenuItem from '../models/MenuItem';
 export const createOrder = async (req: Request, res: Response) => {
     const t = await sequelize.transaction();
     try {
-        const userId = (req as any).user.userId; // Changed from .id to .userId
+        const userId = (req as any).user.id; // JWT stores 'id' not 'userId'
         const { protein, days, mealsPerDay, startDate, deliveryLat, deliveryLng, deliveryAddress, addons } = req.body;
 
         // --- VALIDATION ---

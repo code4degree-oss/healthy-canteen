@@ -28,6 +28,7 @@ export const auth = {
     register: (data: any) => api.post('/auth/register', data),
     login: (data: any) => api.post('/auth/login', data),
     googleLogin: (token: string) => api.post('/auth/google', { token }),
+    verifyToken: () => api.get('/auth/verify'),
 };
 
 export const orders = {

@@ -100,3 +100,28 @@ export const googleLogin = async (req: Request, res: Response) => {
         res.status(500).json({ message: 'Google login failed', error });
     }
 };
+
+// Verify token - called on app load to check if stored token is still valid
+export const verifyToken = async (req: Request, res: Response) => {
+    try {
+        // If we reach here, the token is valid (middleware already verified it)
+        // Return the user data from the token
+        const user = (req as any).user;
+        if (!user) {
+            return res.status(401).json({ message: 'Invalid token' });
+        }
+
+        // Fetch fresh user data from DB
+        const dbUser = await User.findByPk(user.id, {
+            attributes: ['id', 'name', 'email', 'role']
+        });
+
+        if (!dbUser) {
+            return res.status(401).json({ message: 'User not found' });
+        }
+
+        res.status(200).json({ user: dbUser });
+    } catch (error) {
+        res.status(500).json({ message: 'Token verification failed', error });
+    }
+};

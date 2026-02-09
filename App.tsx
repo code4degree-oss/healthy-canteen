@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from 'react';
+import { BrowserRouter, Routes, Route, useNavigate, Navigate } from 'react-router-dom';
 import { HeroSection } from './components/HeroSection';
 import { MenuShowcase } from './components/MenuShowcase';
 import { StorySection } from './components/StorySection';
@@ -10,24 +11,25 @@ import { ClientDashboard } from './components/ClientDashboard';
 import { AuthPage } from './components/AuthPage';
 import { QuirkyButton } from './components/QuirkyButton';
 import { Logo } from './components/Logo';
-import { Shield, Bike, User, LogIn, LayoutDashboard, LogOut } from 'lucide-react';
+import { User, LogIn, LogOut } from 'lucide-react';
 import { GoogleOAuthProvider } from '@react-oauth/google';
-
-type ViewState = 'home' | 'order' | 'admin' | 'delivery' | 'client' | 'auth';
+import { auth } from './src/services/api';
 
 const App: React.FC = () => {
   return (
-    <GoogleOAuthProvider clientId={import.meta.env.VITE_GOOGLE_CLIENT_ID}>
-      <AppContent />
+    <GoogleOAuthProvider clientId={(import.meta as any).env.VITE_GOOGLE_CLIENT_ID}>
+      <BrowserRouter>
+        <AppContent />
+      </BrowserRouter>
     </GoogleOAuthProvider>
   );
 };
 
 const AppContent: React.FC = () => {
+  const navigate = useNavigate();
   const [scrolled, setScrolled] = useState(false);
-  const [currentView, setCurrentView] = useState<ViewState>('home');
-  // Mock Auth State
   const [isLoggedIn, setIsLoggedIn] = useState(false);
+  const [authChecked, setAuthChecked] = useState(false);
 
   useEffect(() => {
     const handleScroll = () => {
@@ -35,28 +37,36 @@ const AppContent: React.FC = () => {
     };
     window.addEventListener('scroll', handleScroll);
 
-    // Check auth
-    const token = localStorage.getItem('token');
-    if (token) {
-      setIsLoggedIn(true);
-    }
+    // Verify token with backend
+    const verifyAuth = async () => {
+      const token = localStorage.getItem('token');
+      if (token) {
+        try {
+          const res = await auth.verifyToken();
+          localStorage.setItem('user', JSON.stringify(res.data.user));
+          setIsLoggedIn(true);
+        } catch (error) {
+          console.warn('Token verification failed, logging out');
+          localStorage.removeItem('token');
+          localStorage.removeItem('user');
+          setIsLoggedIn(false);
+        }
+      }
+      setAuthChecked(true);
+    };
+    verifyAuth();
 
     return () => window.removeEventListener('scroll', handleScroll);
   }, []);
 
-  const navigateTo = (view: ViewState) => {
-    window.scrollTo(0, 0);
-    setCurrentView(view);
-  };
-
   const handleLoginSuccess = (user: any) => {
     setIsLoggedIn(true);
     if (user.role === 'admin') {
-      navigateTo('admin');
+      navigate('/admin');
     } else if (user.role === 'delivery') {
-      navigateTo('delivery');
+      navigate('/delivery');
     } else {
-      navigateTo('client');
+      navigate('/client');
     }
   };
 
@@ -64,38 +74,60 @@ const AppContent: React.FC = () => {
     localStorage.removeItem('token');
     localStorage.removeItem('user');
     setIsLoggedIn(false);
-    navigateTo('home');
+    navigate('/');
   };
 
-  // --- ROUTING LOGIC ---
-  if (currentView === 'auth') {
-    return <AuthPage onLoginSuccess={handleLoginSuccess} onBack={() => navigateTo('home')} />;
+  const goToDashboard = () => {
+    const user = JSON.parse(localStorage.getItem('user') || '{}');
+    if (user.role === 'admin') navigate('/admin');
+    else if (user.role === 'delivery') navigate('/delivery');
+    else navigate('/client');
+  };
+
+  // Show loading while checking auth
+  if (!authChecked) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-slate-50">
+        <div className="animate-spin w-8 h-8 border-4 border-blue-600 border-t-transparent rounded-full"></div>
+      </div>
+    );
   }
 
-  if (currentView === 'client') {
-    // In real app, check auth token here
-    return <ClientDashboard onBack={() => navigateTo('home')} />;
-  }
+  return (
+    <Routes>
+      <Route path="/auth" element={<AuthPage onLoginSuccess={handleLoginSuccess} onBack={() => navigate('/')} />} />
+      <Route path="/client" element={<ClientDashboard onBack={() => navigate('/')} />} />
+      <Route path="/order" element={
+        isLoggedIn
+          ? <OrderFlowPage onBack={() => navigate('/')} />
+          : <Navigate to="/auth" replace />
+      } />
+      <Route path="/admin" element={<AdminDashboard onBack={() => navigate('/')} />} />
+      <Route path="/delivery" element={<DeliveryDashboard onBack={() => navigate('/')} />} />
+      <Route path="/" element={
+        <HomePage
+          scrolled={scrolled}
+          isLoggedIn={isLoggedIn}
+          onLogout={handleLogout}
+          onGoToDashboard={goToDashboard}
+        />
+      } />
+    </Routes>
+  );
+};
 
-  if (currentView === 'order') {
-    if (!isLoggedIn) {
-      return <AuthPage onLoginSuccess={handleLoginSuccess} onBack={() => navigateTo('home')} />;
-    }
-    return <OrderFlowPage onBack={() => navigateTo('home')} />;
-  }
+interface HomePageProps {
+  scrolled: boolean;
+  isLoggedIn: boolean;
+  onLogout: () => void;
+  onGoToDashboard: () => void;
+}
 
-  if (currentView === 'admin') {
-    return <AdminDashboard onBack={() => navigateTo('home')} />;
-  }
+const HomePage: React.FC<HomePageProps> = ({ scrolled, isLoggedIn, onLogout, onGoToDashboard }) => {
+  const navigate = useNavigate();
 
-  if (currentView === 'delivery') {
-    return <DeliveryDashboard onBack={() => navigateTo('home')} />;
-  }
-
-  // --- HOME VIEW ---
   return (
     <div className="min-h-screen overflow-x-hidden selection:bg-quirky-green selection:text-black">
-
       {/* Navbar */}
       <nav className="fixed top-2 md:top-4 left-0 right-0 z-50 transition-all duration-300 pointer-events-none flex justify-center">
         <div className={`pointer-events-auto mx-4 px-4 py-2 rounded-full flex items-center gap-2 md:gap-4 transition-all duration-300 bg-white border-2 border-quirky-black overflow-x-auto no-scrollbar max-w-full ${scrolled ? 'shadow-hard scale-95' : 'shadow-none'}`}>
@@ -105,7 +137,7 @@ const AppContent: React.FC = () => {
 
           <button
             className="px-3 py-1.5 md:px-4 md:py-1.5 rounded-full transition-colors text-[10px] md:text-xs font-bold ml-auto md:ml-2 bg-quirky-green text-quirky-black font-heading border border-quirky-black hover:bg-green-400 shrink-0 whitespace-nowrap"
-            onClick={() => navigateTo('order')}
+            onClick={() => navigate('/order')}
           >
             JOIN NOW
           </button>
@@ -113,24 +145,18 @@ const AppContent: React.FC = () => {
           {/* User / Login Button */}
           {isLoggedIn ? (
             <div className="flex items-center gap-2">
-              <button onClick={() => {
-                const user = JSON.parse(localStorage.getItem('user') || '{}');
-                if (user.role === 'admin') navigateTo('admin');
-                else if (user.role === 'delivery') navigateTo('delivery');
-                else navigateTo('client');
-              }} className="p-1.5 md:p-2 bg-quirky-yellow border border-black rounded-full hover:bg-yellow-400 shrink-0">
+              <button onClick={onGoToDashboard} className="p-1.5 md:p-2 bg-quirky-yellow border border-black rounded-full hover:bg-yellow-400 shrink-0">
                 <User size={16} />
               </button>
-              <button onClick={handleLogout} className="p-1.5 md:p-2 bg-red-100 border border-black rounded-full hover:bg-red-200 shrink-0 text-red-600" title="Logout">
+              <button onClick={onLogout} className="p-1.5 md:p-2 bg-red-100 border border-black rounded-full hover:bg-red-200 shrink-0 text-red-600" title="Logout">
                 <LogOut size={16} />
               </button>
             </div>
           ) : (
-            <button onClick={() => navigateTo('auth')} className="flex items-center gap-1 text-[10px] md:text-xs font-bold hover:text-quirky-pink shrink-0 whitespace-nowrap">
+            <button onClick={() => navigate('/auth')} className="flex items-center gap-1 text-[10px] md:text-xs font-bold hover:text-quirky-pink shrink-0 whitespace-nowrap">
               <LogIn size={14} /> <span className="hidden sm:inline">LOGIN</span>
             </button>
           )}
-
         </div>
       </nav>
 
@@ -159,7 +185,7 @@ const AppContent: React.FC = () => {
                 Customize your plan from 1 to 24 days. Choose your protein. Add your boosters. Get healthy.
               </p>
 
-              <QuirkyButton onClick={() => navigateTo('order')} className="text-xl md:text-2xl px-8 md:px-12 py-4 md:py-6 animate-wiggle hover:animate-none">
+              <QuirkyButton onClick={() => navigate('/order')} className="text-xl md:text-2xl px-8 md:px-12 py-4 md:py-6 animate-wiggle hover:animate-none">
                 BUILD MY PLAN 🛠️
               </QuirkyButton>
             </div>
