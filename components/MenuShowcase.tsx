@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { SIDES } from '../constants';
 import { Check, Zap } from 'lucide-react';
-import { menu } from '../src/services/api';
+import { menu, BASE_URL } from '../src/services/api';
 
 export const MenuShowcase: React.FC = () => {
     // Dynamic Menu State
@@ -127,7 +127,7 @@ export const MenuShowcase: React.FC = () => {
                                         <div className="aspect-square bg-black p-2 rounded-xl border-2 border-black shadow-hard-sm transform rotate-1">
                                             <div className="w-full h-full bg-gray-200 rounded-lg overflow-hidden border-2 border-white relative group">
                                                 {selectedItem.image ? (
-                                                    <img src={selectedItem.image} alt={selectedItem.name} className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-110" />
+                                                    <img src={`${BASE_URL}${selectedItem.image}`} alt={selectedItem.name} className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-110" />
                                                 ) : (
                                                     <div className="w-full h-full flex items-center justify-center bg-gray-100 text-gray-400 font-heading">NO IMAGE</div>
                                                 )}
@@ -180,6 +180,6 @@ export const MenuShowcase: React.FC = () => {
 
                 </div>
             </div>
-        </section>
+        </section >
     );
 };

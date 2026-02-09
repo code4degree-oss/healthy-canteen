@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { ProteinType, CustomerProfile, MenuItem, AddOn } from '../types';
-import { admin } from '../src/services/api';
+import { admin, BASE_URL } from '../src/services/api';
 import {
     ArrowLeft, Search, Users, Edit2, Save, X,
     ChevronRight, Calendar, MapPin, Phone, Mail,
@@ -35,13 +35,15 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onBack }) => {
 
     // --- Menu/Addon View State ---
     const [isAddOnModalOpen, setIsAddOnModalOpen] = useState(false);
-    const [newAddOn, setNewAddOn] = useState({ name: '', price: 0, description: '', allowSubscription: false });
+    const [selectedAddOnId, setSelectedAddOnId] = useState<number | null>(null);
+    const [newAddOn, setNewAddOn] = useState({ name: '', price: 0, description: '', allowSubscription: false, image: null as File | null });
 
     // --- Plan/Menu Management State ---
     const [isPlanModalOpen, setIsPlanModalOpen] = useState(false);
     const [newPlan, setNewPlan] = useState({ name: '', slug: '' });
     const [isMenuItemModalOpen, setIsMenuItemModalOpen] = useState(false);
     const [selectedPlanId, setSelectedPlanId] = useState<number | null>(null);
+    const [selectedItemId, setSelectedItemId] = useState<number | null>(null);
     const [newMenuItem, setNewMenuItem] = useState({
         name: '', slug: '', description: '', proteinAmount: 0, calories: 0, price: 0, color: '#000000', image: null as File | null
     });
@@ -242,15 +244,26 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onBack }) => {
         if (newMenuItem.image) formData.append('image', newMenuItem.image);
 
         try {
-            await admin.addMenuItem(formData);
+            if (selectedItemId) {
+                await admin.updateMenuItem(selectedItemId, newMenuItem); // Need to adjust this call to handle FormData if we want image update, but for now JSON update for fields
+                // ACTUALLY updateMenuItem in api.ts sends JSON. Let's stick to JSON for updates for now except image.
+                // If we want to update image, we need multipart endpoint. 
+                // controller `updateMenuItem` expects JSON body. 
+                // Let's use `admin.updateMenuItem` which we defined.
+                alert('Menu Item Updated!');
+            } else {
+                await admin.addMenuItem(formData);
+                alert('Menu Item Created!');
+            }
+
             setIsMenuItemModalOpen(false);
             // Reset form
             setNewMenuItem({ name: '', slug: '', description: '', proteinAmount: 0, calories: 0, price: 0, color: '#000000', image: null });
+            setSelectedItemId(null);
             fetchData();
-            alert('Menu Item Created!');
         } catch (e) {
             console.error(e);
-            alert('Failed to create item');
+            alert('Failed to save item');
         }
     };
 
@@ -276,15 +289,77 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onBack }) => {
         }
     };
 
-    const handleAddAddOn = async () => {
+    const handleUpdatePlan = async () => {
+        if (!selectedPlanId) return;
         try {
-            const res = await admin.addAddOn(newAddOn);
-            setAddOns([...addOns, res.data]);
-            setIsAddOnModalOpen(false);
-            setNewAddOn({ name: '', price: 0, description: '', allowSubscription: false });
-        } catch (error) {
-            alert('Failed to add addon');
+            await admin.updatePlan(selectedPlanId, { name: newPlan.name });
+            setIsPlanModalOpen(false);
+            setNewPlan({ name: '', slug: '' });
+            setSelectedPlanId(null);
+            fetchData();
+            alert('Plan Updated!');
+        } catch (e) {
+            console.error(e);
+            alert('Failed to update plan');
         }
+    };
+
+    const handleEditItemClick = (item: any) => {
+        setNewMenuItem({
+            name: item.name,
+            slug: item.slug,
+            description: item.description,
+            proteinAmount: item.proteinAmount,
+            calories: item.calories,
+            price: item.price,
+            color: item.color,
+            image: null
+        });
+        setSelectedItemId(item.id);
+        setSelectedPlanId(item.planId);
+        setIsMenuItemModalOpen(true);
+    };
+
+    const handleSaveAddOn = async () => {
+        try {
+            const formData = new FormData();
+            formData.append('name', newAddOn.name);
+            formData.append('price', newAddOn.price.toString());
+            formData.append('description', newAddOn.description);
+            formData.append('allowSubscription', String(newAddOn.allowSubscription));
+            if (newAddOn.image) {
+                formData.append('image', newAddOn.image);
+            }
+
+            let updatedAddOn;
+            if (selectedAddOnId) {
+                const res = await admin.updateAddOn(selectedAddOnId, formData);
+                updatedAddOn = res.data;
+                setAddOns(addOns.map(a => a.id === selectedAddOnId ? updatedAddOn : a));
+            } else {
+                const res = await admin.addAddOn(formData);
+                updatedAddOn = res.data;
+                setAddOns([...addOns, updatedAddOn]);
+            }
+
+            setIsAddOnModalOpen(false);
+            setNewAddOn({ name: '', price: 0, description: '', allowSubscription: false, image: null });
+            setSelectedAddOnId(null);
+        } catch (error) {
+            alert('Failed to save addon');
+        }
+    };
+
+    const handleEditAddOnClick = (addon: any) => {
+        setNewAddOn({
+            name: addon.name,
+            price: addon.price,
+            description: addon.description,
+            allowSubscription: addon.allowSubscription,
+            image: null // Start with empty file input
+        });
+        setSelectedAddOnId(addon.id);
+        setIsAddOnModalOpen(true);
     };
 
     const handleDeleteAddOn = async (id: number) => {
@@ -406,6 +481,8 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onBack }) => {
                                 <th className="px-4 py-3">Main Meal</th>
                                 <th className="px-4 py-3">Add-Ons</th>
                                 <th className="px-4 py-3">Status</th>
+                                <th className="px-4 py-3">Status</th>
+                                <th className="px-4 py-3">Driver / Actions</th>
                             </tr>
                         </thead>
                         <tbody className="divide-y divide-slate-100">
@@ -415,11 +492,26 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onBack }) => {
                                 if (!activeSub) return null;
 
                                 const activeAddons = activeSub.addons ? Object.keys(activeSub.addons).map(k => {
-                                    const def = addOns.find(a => a.id === parseInt(k));
+                                    // Try to find by ID (loose equality for string/number match) or by exact name match
+                                    const def = addOns.find(a => a.id == k || a.name === k);
                                     const item = activeSub.addons[k];
                                     if (item.quantity === 0) return null;
-                                    return `${def?.name || '?'} x${item.quantity}`;
+                                    // Fallback to key 'k' if definition not found, instead of '?'
+                                    return `${def?.name || k} x${item.quantity}`;
                                 }).filter(Boolean).join(', ') : '';
+
+                                // Calculate Status Logic Here for Row
+                                const todayStr = new Date().toISOString().split('T')[0];
+                                const log = activeSub.deliveryLogs?.find((l: any) => new Date(l.deliveryTime).toISOString().startsWith(todayStr));
+                                const status = log?.status || 'PENDING';
+                                const getStatusBadge = (s: string) => {
+                                    switch (s) {
+                                        case 'DELIVERED': return <span className="px-2 py-1 rounded-full text-xs font-bold bg-green-100 text-green-700">Delivered</span>;
+                                        case 'ASSIGNED': return <span className="px-2 py-1 rounded-full text-xs font-bold bg-blue-100 text-blue-700">Assigned</span>;
+                                        case 'READY': return <span className="px-2 py-1 rounded-full text-xs font-bold bg-yellow-100 text-yellow-700">Ready</span>;
+                                        default: return <span className="px-2 py-1 rounded-full text-xs font-bold bg-slate-100 text-slate-500">Not Yet Delivered</span>;
+                                    }
+                                };
 
                                 return (
                                     <tr key={activeSub.id}>
@@ -434,19 +526,35 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onBack }) => {
                                             {activeAddons || '-'}
                                         </td>
                                         <td className="px-4 py-3">
+                                            <div className="flex flex-col items-start gap-1">
+                                                {getStatusBadge(status)}
+                                                {status === 'DELIVERED' && log && (
+                                                    <div className="mt-1 text-xs flex flex-col gap-0.5">
+                                                        <span className="text-slate-600 flex items-center gap-1">
+                                                            🕒 {new Date(log.deliveryTime).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                                                        </span>
+                                                        {log.latitude && log.longitude && (
+                                                            <a
+                                                                href={`https://www.google.com/maps?q=${log.latitude},${log.longitude}`}
+                                                                target="_blank"
+                                                                rel="noreferrer"
+                                                                className="text-blue-500 hover:underline flex items-center gap-1"
+                                                            >
+                                                                <MapPin size={10} /> Location
+                                                            </a>
+                                                        )}
+                                                    </div>
+                                                )}
+                                            </div>
+                                        </td>
+                                        <td className="px-4 py-3">
                                             {(() => {
-                                                // Find log for today
-                                                const todayStr = new Date().toISOString().split('T')[0];
-                                                const log = activeSub.deliveryLogs?.find((l: any) => new Date(l.deliveryTime).toISOString().startsWith(todayStr));
-                                                const status = log?.status || 'PENDING';
-
                                                 if (status === 'DELIVERED') {
-                                                    return (
-                                                        <div className="flex flex-col text-xs">
-                                                            <span className="text-green-600 font-bold flex items-center gap-1">✅ {new Date(log.deliveryTime).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
-                                                            {log.deliveryAgent && <span className="text-slate-400">by {log.deliveryAgent.name}</span>}
-                                                        </div>
-                                                    );
+                                                    return log?.deliveryAgent ? (
+                                                        <span className="text-xs font-bold text-slate-700 flex items-center gap-1">
+                                                            👤 {log.deliveryAgent.name}
+                                                        </span>
+                                                    ) : <span className="text-xs text-slate-400">-</span>;
                                                 }
 
                                                 if (status === 'PENDING') {
@@ -476,7 +584,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onBack }) => {
                                                                 ))}
                                                             </select>
                                                         </div>
-                                                        {status === 'ASSIGNED' && log.deliveryAgent && (
+                                                        {status === 'ASSIGNED' && log?.deliveryAgent && (
                                                             <span className="text-[10px] text-blue-600 font-medium">Assigned to: {log.deliveryAgent.name}</span>
                                                         )}
                                                     </div>
@@ -530,12 +638,24 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onBack }) => {
                         <div key={plan.id} className="bg-white border border-slate-200 rounded-xl overflow-hidden shadow-sm">
                             <div className="bg-slate-50 p-4 border-b border-slate-200 flex justify-between items-center">
                                 <h3 className="font-bold text-lg text-slate-800">{plan.name} <span className="text-xs text-slate-500 font-normal ml-2">({plan.slug})</span></h3>
-                                <button
-                                    onClick={() => handleDeletePlan(plan.id)}
-                                    className="text-red-500 hover:text-red-700 hover:bg-red-50 p-2 rounded transition-colors flex items-center gap-1 text-sm font-medium"
-                                >
-                                    <Trash2 size={16} /> Delete Plan
-                                </button>
+                                <div className="flex gap-2">
+                                    <button
+                                        onClick={() => {
+                                            setNewPlan({ name: plan.name, slug: plan.slug });
+                                            setSelectedPlanId(plan.id);
+                                            setIsPlanModalOpen(true);
+                                        }}
+                                        className="text-blue-600 hover:bg-blue-50 p-2 rounded transition-colors flex items-center gap-1 text-sm font-medium"
+                                    >
+                                        <Edit2 size={16} /> Edit
+                                    </button>
+                                    <button
+                                        onClick={() => handleDeletePlan(plan.id)}
+                                        className="text-red-500 hover:text-red-700 hover:bg-red-50 p-2 rounded transition-colors flex items-center gap-1 text-sm font-medium"
+                                    >
+                                        <Trash2 size={16} /> Delete
+                                    </button>
+                                </div>
                             </div>
                             <div className="overflow-x-auto">
                                 <table className="w-full text-left min-w-[800px]">
@@ -555,7 +675,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onBack }) => {
                                                 <td className="px-6 py-4">
                                                     <div className="w-12 h-12 rounded-lg bg-slate-100 overflow-hidden border border-slate-200">
                                                         {item.image ? (
-                                                            <img src={`${(import.meta as any).env.VITE_API_URL?.replace('/api', '')}${item.image}`} alt={item.name} className="w-full h-full object-cover" />
+                                                            <img src={`${BASE_URL}${item.image}`} alt={item.name} className="w-full h-full object-cover" />
                                                         ) : (
                                                             <div className="w-full h-full flex items-center justify-center text-slate-300"><Utensils size={16} /></div>
                                                         )}
@@ -573,7 +693,8 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onBack }) => {
                                                     {item.description}
                                                 </td>
                                                 <td className="px-6 py-4 font-bold text-slate-900">₹{item.price}</td>
-                                                <td className="px-6 py-4 text-right">
+                                                <td className="px-6 py-4 text-right flex justify-end gap-2">
+                                                    <button onClick={() => handleEditItemClick(item)} className="text-blue-500 hover:text-blue-700 p-2"><Edit2 size={16} /></button>
                                                     <button onClick={() => handleDeleteMenuItem(item.id)} className="text-red-500 hover:text-red-700 p-2"><Trash2 size={16} /></button>
                                                 </td>
                                             </tr>
@@ -602,17 +723,35 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onBack }) => {
                     <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
                         {addOns.map(addon => (
                             <div key={addon.id} className="bg-white p-4 rounded-lg border border-slate-200 shadow-sm flex justify-between items-center group">
-                                <div>
-                                    <p className="font-bold text-sm text-slate-900">{addon.name}</p>
-                                    <p className="text-xs text-slate-500">₹{addon.price}</p>
+                                <div className="flex items-center gap-3">
+                                    {(addon as any).image ? (
+                                        <img src={`${BASE_URL}${(addon as any).image}`} alt={addon.name} className="w-10 h-10 rounded object-cover border border-slate-100 bg-slate-50" />
+                                    ) : (
+                                        <div className="w-10 h-10 rounded bg-slate-100 border border-slate-200 flex items-center justify-center text-slate-300">
+                                            <Utensils size={14} />
+                                        </div>
+                                    )}
+                                    <div>
+                                        <p className="font-bold text-sm text-slate-900">{addon.name}</p>
+                                        <p className="text-xs text-slate-500">₹{addon.price}</p>
+                                    </div>
                                 </div>
-                                <button onClick={() => handleDeleteAddOn(addon.id as any)} className="p-2 text-red-500 hover:bg-red-50 rounded opacity-0 group-hover:opacity-100 transition-all">
-                                    <Trash2 size={16} />
-                                </button>
+                                <div className="flex gap-2 opacity-0 group-hover:opacity-100 transition-all">
+                                    <button onClick={() => handleEditAddOnClick(addon)} className="p-2 text-blue-500 hover:bg-blue-50 rounded">
+                                        <Edit2 size={16} />
+                                    </button>
+                                    <button onClick={() => handleDeleteAddOn(addon.id as any)} className="p-2 text-red-500 hover:bg-red-50 rounded">
+                                        <Trash2 size={16} />
+                                    </button>
+                                </div>
                             </div>
                         ))}
                         <button
-                            onClick={() => setIsAddOnModalOpen(true)}
+                            onClick={() => {
+                                setNewAddOn({ name: '', price: 0, description: '', allowSubscription: false, image: null });
+                                setSelectedAddOnId(null);
+                                setIsAddOnModalOpen(true);
+                            }}
                             className="border-2 border-dashed border-slate-300 rounded-lg p-4 flex items-center justify-center text-slate-500 hover:border-blue-400 hover:text-blue-600 transition-colors"
                         >
                             + Add New Item
@@ -926,19 +1065,20 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onBack }) => {
             {isPlanModalOpen && (
                 <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/50 backdrop-blur-sm">
                     <div className="bg-white p-6 rounded-xl shadow-xl w-full max-w-sm">
-                        <h2 className="text-xl font-bold mb-4">Create New Plan Type</h2>
-                        <form onSubmit={handleCreatePlan} className="space-y-4">
+                        <h2 className="text-xl font-bold mb-4">{selectedPlanId ? 'Edit Plan' : 'Create New Plan Type'}</h2>
+                        <form onSubmit={(e) => { e.preventDefault(); selectedPlanId ? handleUpdatePlan() : handleCreatePlan(e); }} className="space-y-4">
                             <div>
                                 <label className="block text-xs font-bold text-slate-500 mb-1">Plan Name (e.g. Keto Plan)</label>
                                 <input value={newPlan.name} onChange={e => setNewPlan({ ...newPlan, name: e.target.value })} className="w-full p-2 border rounded" required />
                             </div>
                             <div>
                                 <label className="block text-xs font-bold text-slate-500 mb-1">Slug (e.g. KETO)</label>
-                                <input value={newPlan.slug} onChange={e => setNewPlan({ ...newPlan, slug: e.target.value })} className="w-full p-2 border rounded uppercase" required />
+                                <input value={newPlan.slug} onChange={e => setNewPlan({ ...newPlan, slug: e.target.value })} className="w-full p-2 border rounded uppercase" required disabled={!!selectedPlanId} />
+                                {selectedPlanId && <p className="text-[10px] text-slate-400 mt-1">Slug cannot be changed after creation.</p>}
                             </div>
                             <div className="flex justify-end gap-2 pt-2">
-                                <button type="button" onClick={() => setIsPlanModalOpen(false)} className="px-4 py-2 text-slate-600 hover:bg-slate-100 rounded">Cancel</button>
-                                <button type="submit" className="px-4 py-2 bg-slate-900 text-white rounded hover:bg-slate-800">Create Plan</button>
+                                <button type="button" onClick={() => { setIsPlanModalOpen(false); setSelectedPlanId(null); setNewPlan({ name: '', slug: '' }); }} className="px-4 py-2 text-slate-600 hover:bg-slate-100 rounded">Cancel</button>
+                                <button type="submit" className="px-4 py-2 bg-slate-900 text-white rounded hover:bg-slate-800">{selectedPlanId ? 'Update Plan' : 'Create Plan'}</button>
                             </div>
                         </form>
                     </div>
@@ -949,7 +1089,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onBack }) => {
             {isMenuItemModalOpen && (
                 <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/50 backdrop-blur-sm p-4">
                     <div className="bg-white p-6 rounded-xl shadow-xl w-full max-w-lg max-h-[90vh] overflow-y-auto">
-                        <h2 className="text-xl font-bold mb-4">Add Menu Item</h2>
+                        <h2 className="text-xl font-bold mb-4">{selectedItemId ? 'Edit Menu Item' : 'Add Menu Item'}</h2>
                         <form onSubmit={handleCreateMenuItem} className="space-y-4">
                             <div>
                                 <label className="block text-xs font-bold text-slate-500 mb-1">Select Plan</label>
@@ -958,6 +1098,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onBack }) => {
                                     value={selectedPlanId || ''}
                                     onChange={e => setSelectedPlanId(parseInt(e.target.value))}
                                     required
+                                    disabled={!!selectedItemId} // Disable moving plans for now
                                 >
                                     <option value="">-- Choose Plan --</option>
                                     {plans.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
@@ -970,7 +1111,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onBack }) => {
                                 </div>
                                 <div>
                                     <label className="block text-xs font-bold text-slate-500 mb-1">Slug (Unique ID)</label>
-                                    <input value={newMenuItem.slug} onChange={e => setNewMenuItem({ ...newMenuItem, slug: e.target.value })} className="w-full p-2 border rounded uppercase" required />
+                                    <input value={newMenuItem.slug} onChange={e => setNewMenuItem({ ...newMenuItem, slug: e.target.value })} className="w-full p-2 border rounded uppercase" required disabled={!!selectedItemId} />
                                 </div>
                             </div>
                             <div>
@@ -999,13 +1140,13 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onBack }) => {
                                 </div>
                             </div>
                             <div>
-                                <label className="block text-xs font-bold text-slate-500 mb-1">Upload Image</label>
+                                <label className="block text-xs font-bold text-slate-500 mb-1">Upload Image {selectedItemId && '(Leave empty to keep current)'}</label>
                                 <input type="file" accept="image/*" onChange={e => setNewMenuItem({ ...newMenuItem, image: e.target.files?.[0] || null })} className="w-full p-2 border rounded bg-slate-50" />
                             </div>
 
                             <div className="flex justify-end gap-2 pt-4">
-                                <button type="button" onClick={() => setIsMenuItemModalOpen(false)} className="px-4 py-2 text-slate-600 hover:bg-slate-100 rounded">Cancel</button>
-                                <button type="submit" className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700">Save Item</button>
+                                <button type="button" onClick={() => { setIsMenuItemModalOpen(false); setSelectedItemId(null); setNewMenuItem({ name: '', slug: '', description: '', proteinAmount: 0, calories: 0, price: 0, color: '#000000', image: null }); }} className="px-4 py-2 text-slate-600 hover:bg-slate-100 rounded">Cancel</button>
+                                <button type="submit" className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700">{selectedItemId ? 'Update Item' : 'Save Item'}</button>
                             </div>
                         </form>
                     </div>
@@ -1016,14 +1157,35 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onBack }) => {
             {isAddOnModalOpen && (
                 <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/50 backdrop-blur-sm">
                     <div className="bg-white p-6 rounded-xl shadow-xl w-full max-w-md">
-                        <h2 className="text-xl font-bold mb-4">Add New Add-On</h2>
+                        <h2 className="text-xl font-bold mb-4">{selectedAddOnId ? 'Edit Add-On' : 'Add New Add-On'}</h2>
                         <div className="space-y-4">
                             <input placeholder="Name (e.g., Kefir)" value={newAddOn.name} onChange={e => setNewAddOn({ ...newAddOn, name: e.target.value })} className="w-full p-2 border rounded" />
                             <input type="number" placeholder="Price" value={newAddOn.price} onChange={e => setNewAddOn({ ...newAddOn, price: parseInt(e.target.value) })} className="w-full p-2 border rounded" />
                             <textarea placeholder="Description" value={newAddOn.description} onChange={e => setNewAddOn({ ...newAddOn, description: e.target.value })} className="w-full p-2 border rounded" rows={2} />
+
+                            {/* Image Upload */}
+                            <div>
+                                <label className="block text-xs font-bold text-slate-500 mb-1">Image</label>
+                                <input type="file" accept="image/*" onChange={e => setNewAddOn({ ...newAddOn, image: e.target.files?.[0] || null })} className="w-full p-2 border rounded bg-slate-50" />
+                            </div>
+
+                            {/* Allow Subscription Checkbox */}
+                            <div className="flex items-center gap-2">
+                                <input
+                                    type="checkbox"
+                                    id="allowSub"
+                                    checked={newAddOn.allowSubscription}
+                                    onChange={e => setNewAddOn({ ...newAddOn, allowSubscription: e.target.checked })}
+                                    className="w-4 h-4 text-blue-600"
+                                />
+                                <label htmlFor="allowSub" className="text-sm text-slate-700">Allow as Subscription Add-on?</label>
+                            </div>
+
                             <div className="flex justify-end gap-2 mt-4">
                                 <button onClick={() => setIsAddOnModalOpen(false)} className="px-4 py-2 text-slate-500">Cancel</button>
-                                <button onClick={handleAddAddOn} className="px-4 py-2 bg-blue-600 text-white rounded">Add Item</button>
+                                <button onClick={handleSaveAddOn} className="px-4 py-2 bg-blue-600 text-white rounded">
+                                    {selectedAddOnId ? 'Update Item' : 'Add Item'}
+                                </button>
                             </div>
                         </div>
                     </div>

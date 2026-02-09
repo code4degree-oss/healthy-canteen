@@ -104,9 +104,19 @@ export const getAddOns = async (req: Request, res: Response) => {
 
 export const addAddOn = async (req: Request, res: Response) => {
     try {
-        const addon = await AddOn.create(req.body);
+        const { name, price, description, allowSubscription } = req.body;
+        const image = req.file ? `/uploads/${req.file.filename}` : null;
+
+        const addon = await AddOn.create({
+            name,
+            price,
+            description,
+            allowSubscription: allowSubscription === 'true' || allowSubscription === true,
+            image
+        });
         res.status(201).json(addon);
     } catch (error) {
+        console.error("Error adding addon:", error);
         res.status(500).json({ message: 'Error adding addon', error });
     }
 };
@@ -118,6 +128,33 @@ export const deleteAddOn = async (req: Request, res: Response) => {
         res.json({ message: 'Addon deleted' });
     } catch (error) {
         res.status(500).json({ message: 'Error deleting addon', error });
+    }
+};
+
+export const updateAddOn = async (req: Request, res: Response) => {
+    try {
+        const { id } = req.params;
+        const { name, price, description, allowSubscription } = req.body;
+
+        const addon = await AddOn.findByPk(id);
+        if (!addon) return res.status(404).json({ message: 'Addon not found' });
+
+        if (name) addon.name = name;
+        if (price) addon.price = price;
+        if (description) addon.description = description;
+        if (allowSubscription !== undefined) {
+            addon.allowSubscription = allowSubscription === 'true' || allowSubscription === true;
+        }
+
+        if (req.file) {
+            addon.image = `/uploads/${req.file.filename}`;
+        }
+
+        await addon.save();
+        res.json(addon);
+    } catch (error) {
+        console.error("Error updating addon:", error);
+        res.status(500).json({ message: 'Error updating addon', error });
     }
 };
 

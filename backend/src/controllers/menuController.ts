@@ -39,6 +39,24 @@ export const getMenu = async (req: Request, res: Response) => {
 };
 
 /**
+ * Update a Plan (Renaming)
+ */
+export const updatePlan = async (req: Request, res: Response) => {
+    try {
+        const { id } = req.params;
+        const { name } = req.body;
+        const plan = await Plan.findByPk(id);
+        if (!plan) return res.status(404).json({ message: 'Plan not found' });
+
+        if (name) plan.name = name;
+        await plan.save();
+        res.status(200).json(plan);
+    } catch (error) {
+        res.status(500).json({ message: 'Failed to update plan', error });
+    }
+};
+
+/**
  * Create a new Plan (Category)
  */
 export const createPlan = async (req: Request, res: Response) => {

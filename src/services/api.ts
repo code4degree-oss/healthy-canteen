@@ -1,7 +1,10 @@
 import axios from 'axios';
 
+export const API_URL = (import.meta as any).env.VITE_API_URL || 'http://localhost:5000/api';
+export const BASE_URL = API_URL.replace('/api', '');
+
 const api = axios.create({
-    baseURL: (import.meta as any).env.VITE_API_URL || 'http://localhost:5000/api',
+    baseURL: API_URL,
     headers: {
         'Content-Type': 'application/json',
     },
@@ -48,7 +51,8 @@ export const admin = {
 
     // Admin Menu Operations
     createPlan: (data: any) => api.post('/menu/plans', data),
-    deletePlan: (id: number) => api.delete(`/menu/plans/${id}`), // Placeholder if backend supports
+    updatePlan: (id: number, data: any) => api.put(`/menu/plans/${id}`, data),
+    deletePlan: (id: number) => api.delete(`/menu/plans/${id}`),
     addMenuItem: (data: FormData) => api.post('/menu/items', data, {
         headers: { 'Content-Type': 'multipart/form-data' }
     }),
@@ -57,7 +61,12 @@ export const admin = {
 
     // Addons
     getAddOns: () => api.get('/admin/addons'),
-    addAddOn: (data: any) => api.post('/admin/addons', data),
+    addAddOn: (data: any) => api.post('/admin/addons', data, {
+        headers: { 'Content-Type': 'multipart/form-data' }
+    }),
+    updateAddOn: (id: number, data: any) => api.put(`/admin/addons/${id}`, data, {
+        headers: { 'Content-Type': 'multipart/form-data' }
+    }),
     deleteAddOn: (id: number) => api.delete(`/admin/addons/${id}`),
 
     // Delivery Assignment

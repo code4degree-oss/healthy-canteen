@@ -1,10 +1,11 @@
 import express from 'express';
 import { authenticateToken } from '../middleware/authMiddleware';
+import { upload } from '../controllers/menuController';
 import * as adminController from '../controllers/adminController';
 import {
     getAllUsers, createUser, deleteUser,
     getMenu, addMenuItem, updateMenuItem, deleteMenuItem,
-    getAddOns, addAddOn, deleteAddOn, updateSubscription
+    getAddOns, addAddOn, deleteAddOn, updateSubscription, updateAddOn
 } from '../controllers/adminController';
 
 const router = express.Router();
@@ -42,7 +43,8 @@ router.delete('/menu/:id', isAdmin, deleteMenuItem);
 
 // ADD-ONS (Public READ, Admin WRITE)
 router.get('/addons', getAddOns); // Anyone can read addons
-router.post('/addons', isAdmin, addAddOn);
+router.post('/addons', isAdmin, upload.single('image'), addAddOn);
+router.put('/addons/:id', isAdmin, upload.single('image'), updateAddOn);
 router.delete('/addons/:id', isAdmin, deleteAddOn);
 
 // SUBSCRIPTIONS
