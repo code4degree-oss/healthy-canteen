@@ -25,6 +25,7 @@ app.use('/api/orders', orderRoutes);
 app.use('/api/admin', adminRoutes);
 app.use('/api/delivery', deliveryRoutes);
 app.use('/api/menu', menuRoutes);
+app.use('/api/subscriptions', require('./routes/subscriptionRoutes').default);
 
 // Serve static files 
 app.use('/uploads', express.static(path.join(__dirname, '../uploads'))); // Serve uploads directory

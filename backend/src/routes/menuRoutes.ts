@@ -11,8 +11,8 @@ router.get('/', getMenu);
 router.post('/plans', authenticateToken, authorizeRole(['admin']), createPlan);
 router.delete('/plans/:id', authenticateToken, authorizeRole(['admin']), deletePlan);
 router.put('/plans/:id', authenticateToken, authorizeRole(['admin']), updatePlan);
-router.post('/items', authenticateToken, authorizeRole(['admin']), upload.single('image'), createMenuItem);
-router.put('/items/:id', authenticateToken, authorizeRole(['admin']), updateMenuItem);
+router.post('/items', authenticateToken, authorizeRole(['admin']), upload.any(), createMenuItem);
+router.put('/items/:id', authenticateToken, authorizeRole(['admin']), upload.any(), updateMenuItem);
 router.delete('/items/:id', authenticateToken, authorizeRole(['admin']), deleteMenuItem);
 
 export default router;

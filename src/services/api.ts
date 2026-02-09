@@ -57,7 +57,9 @@ export const admin = {
     addMenuItem: (data: FormData) => api.post('/menu/items', data, {
         headers: { 'Content-Type': 'multipart/form-data' }
     }),
-    updateMenuItem: (id: number, data: any) => api.put(`/menu/items/${id}`, data), // Ensure backend has this
+    updateMenuItem: (id: number, data: FormData) => api.put(`/menu/items/${id}`, data, {
+        headers: { 'Content-Type': 'multipart/form-data' }
+    }),
     deleteMenuItem: (id: number) => api.delete(`/menu/items/${id}`),
 
     // Addons
@@ -79,6 +81,11 @@ export const admin = {
 export const delivery = {
     getQueue: () => api.get('/delivery/queue'),
     confirm: (data: any) => api.post('/delivery/confirm', data),
+};
+
+export const subscriptions = {
+    pause: (data: { subscriptionId: number, startDate: string, days: number }) => api.post('/subscriptions/pause', data),
+    cancel: (data: { subscriptionId: number }) => api.post('/subscriptions/cancel', data)
 };
 
 export const menu = {

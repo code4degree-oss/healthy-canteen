@@ -3,7 +3,7 @@ import { ProteinType, AddOn, UserSubscription, OrderHistoryItem } from '../types
 import { ADD_ONS } from '../constants';
 import { QuirkyButton } from './QuirkyButton';
 import { ArrowLeft, Pause, Play, Plus, Zap, Calendar, ShoppingBag, Receipt } from 'lucide-react';
-import { orders } from '../src/services/api';
+import { orders, subscriptions } from '../src/services/api';
 
 interface ClientDashboardProps {
     onBack: () => void;
@@ -53,12 +53,37 @@ export const ClientDashboard: React.FC<ClientDashboardProps> = ({ onBack }) => {
 
     // --- Handlers ---
 
-    const togglePause = () => {
-        // In real backend, this sends a POST request
-        const newStatus = subscription?.status === 'ACTIVE' ? 'PAUSED' : 'ACTIVE';
-        if (subscription) {
-            setSubscription({ ...subscription, status: newStatus });
-            alert(newStatus === 'PAUSED' ? "Subscription Paused! No meal tomorrow." : "Welcome back! Meals resume tomorrow.");
+    const [showPauseModal, setShowPauseModal] = useState(false);
+    const [pauseConfig, setPauseConfig] = useState({ date: '', days: 1 });
+
+    const handlePauseClick = () => {
+        if (!subscription || subscription.status !== 'ACTIVE') return;
+
+        // Default start date: Tomorrow
+        const tomorrow = new Date();
+        tomorrow.setDate(tomorrow.getDate() + 1);
+        setPauseConfig({ date: tomorrow.toISOString().split('T')[0], days: 1 });
+        setShowPauseModal(true);
+    };
+
+    const handlePauseSubmit = async () => {
+        if (!subscription) return;
+        try {
+            setLoading(true);
+            await subscriptions.pause({
+                subscriptionId: subscription.id,
+                startDate: pauseConfig.date,
+                days: pauseConfig.days
+            });
+            alert(`Subscription paused for ${pauseConfig.days} days!`);
+            setShowPauseModal(false);
+            // Refresh data
+            const subRes = await orders.getActiveSubscription();
+            setSubscription(subRes.data);
+        } catch (error: any) {
+            alert(error.response?.data?.message || 'Failed to pause');
+        } finally {
+            setLoading(false);
         }
     };
 
@@ -169,10 +194,12 @@ export const ClientDashboard: React.FC<ClientDashboardProps> = ({ onBack }) => {
 
                                 <div className="flex flex-col sm:flex-row gap-4">
                                     <button
-                                        onClick={togglePause}
-                                        className={`flex-1 flex items-center justify-center gap-2 py-3 md:py-4 border-3 border-black rounded-xl font-heading transition-all ${subscription.status === 'ACTIVE' ? 'bg-white hover:bg-yellow-100' : 'bg-quirky-green hover:bg-green-400'}`}
+                                        onClick={handlePauseClick}
+                                        disabled={subscription.pausesRemaining <= 0}
+                                        className={`flex-1 flex items-center justify-center gap-2 py-3 md:py-4 border-3 border-black rounded-xl font-heading transition-all ${subscription.status === 'ACTIVE' ? 'bg-white hover:bg-yellow-100' : 'bg-gray-200 cursor-not-allowed'}`}
                                     >
-                                        {subscription.status === 'ACTIVE' ? <><Pause size={20} /> PAUSE PLAN</> : <><Play size={20} /> RESUME</>}
+                                        <Pause size={20} />
+                                        {subscription.pausesRemaining > 0 ? 'PAUSE PLAN' : 'NO PAUSES LEFT'}
                                     </button>
                                     <button className="flex-1 flex items-center justify-center gap-2 py-3 md:py-4 border-3 border-black rounded-xl font-heading bg-quirky-blue text-white hover:bg-blue-400">
                                         <Calendar size={20} /> VIEW MENU
@@ -263,6 +290,45 @@ export const ClientDashboard: React.FC<ClientDashboardProps> = ({ onBack }) => {
                 </div>
 
             </div>
+
+            {/* PAUSE MODAL */}
+            {showPauseModal && (
+                <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm animate-in fade-in">
+                    <div className="bg-white border-4 border-black p-6 md:p-8 rounded-3xl max-w-md w-full shadow-hard-xl transform -rotate-1 relative">
+                        <button onClick={() => setShowPauseModal(false)} className="absolute top-4 right-4 hover:scale-110 transition-transform p-2">X</button>
+                        <h3 className="font-heading text-2xl mb-4 text-center">PAUSE PLAN ⏸️</h3>
+                        <div className="space-y-4">
+                            <div>
+                                <label className="block text-xs font-bold uppercase mb-1">Start Date</label>
+                                <input
+                                    type="date"
+                                    value={pauseConfig.date}
+                                    onChange={(e) => setPauseConfig({ ...pauseConfig, date: e.target.value })}
+                                    className="w-full p-3 border-2 border-black rounded-lg font-body"
+                                    min={new Date(Date.now() + 86400000).toISOString().split('T')[0]}
+                                />
+                                <p className="text-[10px] text-gray-500 mt-1">Must be at least 1 day in advance (before 4PM).</p>
+                            </div>
+                            <div>
+                                <label className="block text-xs font-bold uppercase mb-1">Duration (Days)</label>
+                                <select
+                                    value={pauseConfig.days}
+                                    onChange={(e) => setPauseConfig({ ...pauseConfig, days: Number(e.target.value) })}
+                                    className="w-full p-3 border-2 border-black rounded-lg font-body"
+                                >
+                                    {[1, 2, 3, 4, 5, 6].map(d => <option key={d} value={d}>{d} Days</option>)}
+                                </select>
+                            </div>
+                            <button
+                                onClick={handlePauseSubmit}
+                                className="w-full py-3 bg-quirky-yellow border-2 border-black rounded-xl font-heading hover:bg-yellow-400 shadow-hard mt-4"
+                            >
+                                CONFIRM PAUSE
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
 
             {/* Addon Payment Modal */}
             {showAddonModal && subscription && (

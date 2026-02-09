@@ -79,18 +79,21 @@ export const createPlan = async (req: Request, res: Response) => {
 };
 
 /**
- * Create a new Menu Item
+ * Create a new Menu Item (Supports multiple images via `images` field)
  */
 export const createMenuItem = async (req: Request, res: Response) => {
     try {
         const { planId, name, slug, description, proteinAmount, calories, price, color } = req.body;
 
-        let imageUrl = '';
-        if (req.file) {
-            // Store relative path or full URL depending on how you serve statics
-            // Here assuming we'll serve /uploads folder statically
-            imageUrl = `/uploads/${req.file.filename}`;
+        // Handle multiple file uploads
+        let imageUrls: string[] = [];
+        const files = req.files as Express.Multer.File[];
+        if (files && files.length > 0) {
+            imageUrls = files.map(file => `/uploads/${file.filename}`);
         }
+
+        // For backward compatibility, also set first image as `image`
+        const primaryImage = imageUrls.length > 0 ? imageUrls[0] : '';
 
         const menuItem = await MenuItem.create({
             planId,
@@ -99,9 +102,10 @@ export const createMenuItem = async (req: Request, res: Response) => {
             description,
             proteinAmount,
             calories,
-            price, // Expecting base price
+            price,
             color,
-            image: imageUrl
+            image: primaryImage,
+            images: imageUrls
         });
 
         res.status(201).json(menuItem);
@@ -112,7 +116,7 @@ export const createMenuItem = async (req: Request, res: Response) => {
 };
 
 /**
- * Update a Menu Item
+ * Update a Menu Item (Supports multiple images via multipart form)
  */
 export const updateMenuItem = async (req: Request, res: Response) => {
     try {
@@ -130,7 +134,13 @@ export const updateMenuItem = async (req: Request, res: Response) => {
         if (price) item.price = price;
         if (color) item.color = color;
 
-        // Note: Image update logic omitted for brevity, can be added if needed
+        // Handle multiple file uploads if provided
+        const files = req.files as Express.Multer.File[];
+        if (files && files.length > 0) {
+            const imageUrls = files.map(file => `/uploads/${file.filename}`);
+            item.images = imageUrls;
+            item.image = imageUrls[0]; // Also update primary image for backward compatibility
+        }
 
         await item.save();
         res.status(200).json(item);

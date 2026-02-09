@@ -14,6 +14,7 @@ import { Logo } from './components/Logo';
 import { User, LogIn, LogOut } from 'lucide-react';
 import { GoogleOAuthProvider } from '@react-oauth/google';
 import { auth } from './src/services/api';
+import { PoliciesPage } from './components/PoliciesPage';
 
 const App: React.FC = () => {
   return (
@@ -104,6 +105,7 @@ const AppContent: React.FC = () => {
       } />
       <Route path="/admin" element={<AdminDashboard onBack={() => navigate('/')} />} />
       <Route path="/delivery" element={<DeliveryDashboard onBack={() => navigate('/')} />} />
+      <Route path="/policies" element={<PoliciesPage />} />
       <Route path="/" element={
         <HomePage
           scrolled={scrolled}
@@ -129,11 +131,15 @@ const HomePage: React.FC<HomePageProps> = ({ scrolled, isLoggedIn, onLogout, onG
   return (
     <div className="min-h-screen overflow-x-hidden selection:bg-quirky-green selection:text-black">
       {/* Navbar */}
-      <nav className="fixed top-2 md:top-4 left-0 right-0 z-50 transition-all duration-300 pointer-events-none flex justify-center">
-        <div className={`pointer-events-auto mx-4 px-4 py-2 rounded-full flex items-center gap-2 md:gap-4 transition-all duration-300 bg-white border-2 border-quirky-black overflow-x-auto no-scrollbar max-w-full ${scrolled ? 'shadow-hard scale-95' : 'shadow-none'}`}>
-          <div onClick={() => window.scrollTo({ top: 0, behavior: 'smooth' })} className="cursor-pointer shrink-0">
-            <Logo isFunky={true} className="text-sm md:text-xl" />
-          </div>
+      <nav className="fixed top-2 md:top-4 left-0 right-0 z-50 transition-all duration-300 pointer-events-none flex justify-start px-4">
+        {/* Logo on far left */}
+        <div onClick={() => window.scrollTo({ top: 0, behavior: 'smooth' })} className="pointer-events-auto cursor-pointer shrink-0 mr-4">
+          <img src="/logo.jpg" alt="Healthy Canteen" className="h-10 md:h-12 w-auto" />
+        </div>
+
+        {/* Pill navbar moved to left */}
+        <div className={`pointer-events-auto px-4 py-2 rounded-full flex items-center gap-2 md:gap-4 transition-all duration-300 bg-white border-2 border-quirky-black overflow-x-auto no-scrollbar ${scrolled ? 'shadow-hard scale-95' : 'shadow-none'}`}>
+          <Logo isFunky={true} className="text-sm md:text-xl" />
 
           <button
             className="px-3 py-1.5 md:px-4 md:py-1.5 rounded-full transition-colors text-[10px] md:text-xs font-bold ml-auto md:ml-2 bg-quirky-green text-quirky-black font-heading border border-quirky-black hover:bg-green-400 shrink-0 whitespace-nowrap"
@@ -219,7 +225,7 @@ const HomePage: React.FC<HomePageProps> = ({ scrolled, isLoggedIn, onLogout, onG
             padding-bottom: env(safe-area-inset-bottom, 20px);
         }
       `}</style>
-    </div>
+    </div >
   );
 };
 

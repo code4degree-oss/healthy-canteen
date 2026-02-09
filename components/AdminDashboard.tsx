@@ -47,7 +47,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onBack }) => {
     const [selectedPlanId, setSelectedPlanId] = useState<number | null>(null);
     const [selectedItemId, setSelectedItemId] = useState<number | null>(null);
     const [newMenuItem, setNewMenuItem] = useState({
-        name: '', slug: '', description: '', proteinAmount: 0, calories: 0, price: 0, color: '#000000', image: null as File | null
+        name: '', slug: '', description: '', proteinAmount: 0, calories: 0, price: 0, color: '#000000', images: [] as File[]
     });
 
 
@@ -243,15 +243,15 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onBack }) => {
         formData.append('calories', newMenuItem.calories.toString());
         formData.append('price', newMenuItem.price.toString());
         formData.append('color', newMenuItem.color);
-        if (newMenuItem.image) formData.append('image', newMenuItem.image);
+        // Append multiple images
+        if (newMenuItem.images && newMenuItem.images.length > 0) {
+            newMenuItem.images.forEach(file => formData.append('images', file));
+        }
 
         try {
             if (selectedItemId) {
-                await admin.updateMenuItem(selectedItemId, newMenuItem); // Need to adjust this call to handle FormData if we want image update, but for now JSON update for fields
-                // ACTUALLY updateMenuItem in api.ts sends JSON. Let's stick to JSON for updates for now except image.
-                // If we want to update image, we need multipart endpoint. 
-                // controller `updateMenuItem` expects JSON body. 
-                // Let's use `admin.updateMenuItem` which we defined.
+                // Use FormData for updates too (to support image uploads)
+                await admin.updateMenuItem(selectedItemId, formData);
                 alert('Menu Item Updated!');
             } else {
                 await admin.addMenuItem(formData);
@@ -260,7 +260,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onBack }) => {
 
             setIsMenuItemModalOpen(false);
             // Reset form
-            setNewMenuItem({ name: '', slug: '', description: '', proteinAmount: 0, calories: 0, price: 0, color: '#000000', image: null });
+            setNewMenuItem({ name: '', slug: '', description: '', proteinAmount: 0, calories: 0, price: 0, color: '#000000', images: [] });
             setSelectedItemId(null);
             fetchData();
         } catch (e) {
@@ -1152,7 +1152,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onBack }) => {
                             </div>
                             <div>
                                 <label className="block text-xs font-bold text-slate-500 mb-1">Upload Image {selectedItemId && '(Leave empty to keep current)'}</label>
-                                <input type="file" accept="image/*" onChange={e => setNewMenuItem({ ...newMenuItem, image: e.target.files?.[0] || null })} className="w-full p-2 border rounded bg-slate-50" />
+                                <input type="file" accept="image/*" multiple onChange={e => setNewMenuItem({ ...newMenuItem, images: e.target.files ? Array.from(e.target.files) : [] })} className="w-full p-2 border rounded bg-slate-50" />
                             </div>
 
                             <div className="flex justify-end gap-2 pt-4">

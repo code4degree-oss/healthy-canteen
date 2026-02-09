@@ -12,6 +12,7 @@ class MenuItem extends Model {
     public calories!: number;
     public price!: number;
     public image!: string;
+    public images!: string[];
     public color!: string;
     public readonly createdAt!: Date;
     public readonly updatedAt!: Date;
@@ -62,6 +63,11 @@ MenuItem.init(
         image: {
             type: DataTypes.STRING,
             allowNull: true,
+        },
+        images: {
+            type: DataTypes.JSON,
+            allowNull: true,
+            defaultValue: [],
         },
         color: {
             type: DataTypes.STRING,
