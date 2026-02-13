@@ -7,6 +7,7 @@ class AddOn extends Model {
     public price!: number;
     public description!: string;
     public image!: string;
+    public thumbnail!: string;
     public allowSubscription!: boolean;
 }
 

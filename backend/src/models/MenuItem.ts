@@ -12,8 +12,10 @@ class MenuItem extends Model {
     public calories!: number;
     public price!: number;
     public image!: string;
+    public thumbnail!: string;
     public images!: string[];
     public color!: string;
+    public sortOrder!: number;
     public readonly createdAt!: Date;
     public readonly updatedAt!: Date;
 }
@@ -73,6 +75,11 @@ MenuItem.init(
             type: DataTypes.STRING,
             allowNull: true,
             defaultValue: '#000000',
+        },
+        sortOrder: {
+            type: DataTypes.INTEGER,
+            allowNull: true,
+            defaultValue: 0,
         },
     },
     {

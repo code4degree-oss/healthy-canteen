@@ -4,8 +4,7 @@ import { Users, DollarSign, Utensils, Activity } from 'lucide-react';
 interface StatsData {
     activeCount: number;
     totalRevenue: number;
-    chickenMeals: number;
-    paneerMeals: number;
+    proteinCounts?: Record<string, number>;
     recentOrders: any[];
 }
 
@@ -39,7 +38,9 @@ export const AdminOverview: React.FC<AdminOverviewProps> = ({ stats }) => {
                         <div className="p-2 bg-orange-50 rounded-lg"><Utensils className="text-orange-600" size={24} /></div>
                     </div>
                     <h3 className="text-slate-500 text-sm font-medium">Meals to Prep Today</h3>
-                    <p className="text-3xl font-bold text-slate-900 mt-1">{stats.chickenMeals + stats.paneerMeals}</p>
+                    <p className="text-3xl font-bold text-slate-900 mt-1">
+                        {stats.proteinCounts ? Object.values(stats.proteinCounts).reduce((a, b) => a + b, 0) : 0}
+                    </p>
                 </div>
             </div>
 

@@ -11,6 +11,10 @@ class Order extends Model {
     public totalPrice!: number;
     public status!: string; // PENDING, PAID, FAILED
     public startDate!: Date;
+    public deliveryLat!: number;
+    public deliveryLng!: number;
+    public deliveryAddress!: string;
+    public addons!: any;
     public readonly createdAt!: Date;
     public readonly updatedAt!: Date;
 }
@@ -73,7 +77,16 @@ Order.init(
     },
     {
         sequelize,
+        modelName: 'Order',
         tableName: 'orders',
+        indexes: [
+            {
+                fields: ['userId']
+            },
+            {
+                fields: ['createdAt']
+            }
+        ]
     }
 );
 

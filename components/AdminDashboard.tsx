@@ -1,24 +1,32 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { ProteinType, CustomerProfile, MenuItem, AddOn } from '../types';
-import { admin, BASE_URL } from '../src/services/api';
+import { admin, settings, notifications, BASE_URL } from '../src/services/api';
 import {
     ArrowLeft, Search, Users, Edit2, Save, X,
     ChevronRight, Calendar, MapPin, Phone, Mail,
     CreditCard, LayoutDashboard, Utensils, TrendingUp,
-    Activity, DollarSign, ClipboardList, ChefHat, AlertCircle, Menu, Plus, Trash2
+    Activity, DollarSign, ClipboardList, ChefHat, AlertCircle, Menu, Plus, Trash2, Lock, Unlock, Bell
 } from 'lucide-react';
 import { AdminOverview } from './admin/AdminOverview';
 import { AdminCustomerList } from './admin/AdminCustomerList';
+import { AdminNotificationsView } from './admin/AdminNotificationsView';
+import { SortableMenuTable } from './admin/SortableMenuTable';
 
 interface AdminDashboardProps {
     onBack: () => void;
 }
 
 export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onBack }) => {
-    const [activeView, setActiveView] = useState<'dashboard' | 'customers' | 'menu'>('dashboard');
+    const [activeView, setActiveView] = useState<'dashboard' | 'customers' | 'menu' | 'settings' | 'notifications'>('dashboard');
+
+    // Dynamic Data State
 
     // Dynamic Data State
     const [customers, setCustomers] = useState<any[]>([]);
+    const [totalUsers, setTotalUsers] = useState(0);
+    const [totalPages, setTotalPages] = useState(1);
+    const [currentPage, setCurrentPage] = useState(1);
+    const [searchTerm, setSearchTerm] = useState('');
     const [plans, setPlans] = useState<any[]>([]); // New Plans State
     const [menuItems, setMenuItems] = useState<MenuItem[]>([]);
     const [addOns, setAddOns] = useState<AddOn[]>([]);
@@ -29,10 +37,10 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onBack }) => {
 
     // --- Customer View State ---
     const [selectedCustomer, setSelectedCustomer] = useState<any | null>(null);
-    const [searchTerm, setSearchTerm] = useState('');
+    // searchTerm moved up
     const [isEditing, setIsEditing] = useState(false);
     const [editForm, setEditForm] = useState<any | null>(null);
-    const [statusFilter, setStatusFilter] = useState<'ALL' | 'ACTIVE' | 'EXPIRED'>('ALL');
+    const [statusFilter, setStatusFilter] = useState<'ALL' | 'ACTIVE' | 'INACTIVE'>('ALL');
     const [showCreateUserModal, setShowCreateUserModal] = useState(false);
 
     // --- Menu/Addon View State ---
@@ -50,24 +58,41 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onBack }) => {
         name: '', slug: '', description: '', proteinAmount: 0, calories: 0, price: 0, color: '#000000', images: [] as File[]
     });
 
+    // --- Settings State ---
+    const [serviceArea, setServiceArea] = useState({ outletLat: 18.655, outletLng: 73.845, serviceRadiusKm: 5 });
+    const [isLocationLocked, setIsLocationLocked] = useState(true);
+
 
     const [deliveryPartners, setDeliveryPartners] = useState<any[]>([]);
 
-    // FETCH DATA ON MOUNT
+    // FETCH DATA ON MOUNT & SEARCH/PAGE CHANGE
     useEffect(() => {
-        fetchData();
-    }, []);
+        if (activeView === 'customers') {
+            fetchCustomers();
+        } else {
+            fetchData();
+        }
+    }, [activeView, currentPage, searchTerm]);
+
+    // Simple debounce for search
+    useEffect(() => {
+        const timer = setTimeout(() => {
+            if (activeView === 'customers') fetchCustomers();
+        }, 500);
+        return () => clearTimeout(timer);
+    }, [searchTerm]);
 
     const fetchData = async () => {
         setLoading(true);
         try {
-            const [usersRes, menuRes, addonsRes, partnersRes] = await Promise.all([
-                admin.getAllUsers(),
+            const [menuRes, addonsRes, partnersRes, settingsRes] = await Promise.all([
                 admin.getMenu(), // Returns plans with items included
                 admin.getAddOns(),
-                admin.getDeliveryPartners()
+                admin.getDeliveryPartners(),
+                settings.getServiceArea()
             ]);
-            setCustomers(usersRes.data);
+            // usersRes removed from initial load to avoid huge payload
+
             setPlans(menuRes.data); // Set plans (which contain items)
             // Flatten items for table view if needed, or just use plans structure
             const allItems = menuRes.data.flatMap((p: any) => p.items || []);
@@ -75,10 +100,23 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onBack }) => {
 
             setAddOns(addonsRes.data);
             setDeliveryPartners(partnersRes.data);
+            if (settingsRes?.data) setServiceArea(settingsRes.data);
+
         } catch (error) {
             console.error("Failed to fetch admin data", error);
         } finally {
             setLoading(false);
+        }
+    };
+
+    const fetchCustomers = async () => {
+        try {
+            const res = await admin.getUsers(currentPage, 10, searchTerm);
+            setCustomers(res.data.users);
+            setTotalUsers(res.data.total);
+            setTotalPages(res.data.totalPages);
+        } catch (error) {
+            console.error("Failed to fetch customers", error);
         }
     };
 
@@ -99,7 +137,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onBack }) => {
     const stats = useMemo(() => {
         // Basic stats logic adapting to backend data structure differences if any
         const activeCustomers = customers.filter(c => {
-            const activeSub = c.subscriptions?.find((s: any) => s.status === 'ACTIVE');
+            const activeSub = c.subscriptions?.some((s: any) => s.status === 'ACTIVE');
             return !!activeSub;
         });
 
@@ -110,16 +148,16 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onBack }) => {
             return sum + orderSum;
         }, 0);
 
-        let chickenMeals = 0;
-        let paneerMeals = 0;
+        const proteinCounts: Record<string, number> = {};
         let totalAddons = 0;
 
-        activeCustomers.forEach(c => {
-            const activeSub = c.subscriptions?.find((s: any) => s.status === 'ACTIVE');
-            if (activeSub) {
-                if (activeSub.protein === 'CHICKEN') chickenMeals += activeSub.mealsPerDay || 0;
-                if (activeSub.protein === 'PANEER') paneerMeals += activeSub.mealsPerDay || 0;
-            }
+        // Iterate over ALL customers and ALL their active subscriptions
+        customers.forEach(c => {
+            const activeSubs = c.subscriptions?.filter((s: any) => s.status === 'ACTIVE') || [];
+            activeSubs.forEach((sub: any) => {
+                const protein = sub.protein?.toUpperCase() || 'UNKNOWN';
+                proteinCounts[protein] = (proteinCounts[protein] || 0) + (sub.mealsPerDay || 0);
+            });
         });
 
         const allOrders = customers.flatMap(c => (c.orders || []).map((o: any) => ({
@@ -134,8 +172,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onBack }) => {
         return {
             activeCount: activeCustomers.length,
             totalRevenue,
-            chickenMeals,
-            paneerMeals,
+            proteinCounts,
             totalAddons,
             recentOrders
         };
@@ -230,6 +267,15 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onBack }) => {
         } catch (e) { alert('Failed to create plan'); }
     };
 
+    const handleSaveSettings = async () => {
+        try {
+            await settings.updateServiceArea(serviceArea);
+            alert('Service Area Updated!');
+        } catch (e) {
+            alert('Failed to update settings');
+        }
+    };
+
     const handleCreateMenuItem = async (e: React.FormEvent) => {
         e.preventDefault();
         if (!selectedPlanId) return alert('Select a plan first');
@@ -277,6 +323,26 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onBack }) => {
             } catch (e) { alert('Failed to delete'); }
         }
     }
+
+    const handleReorderItems = async (planId: number, reorderedItems: any[]) => {
+        try {
+            // Update local state immediately for smooth UX
+            setPlans(prev => prev.map(plan =>
+                plan.id === planId
+                    ? { ...plan, items: reorderedItems }
+                    : plan
+            ));
+
+            // Send update to backend
+            await admin.reorderMenuItems(reorderedItems.map((item, index) => ({
+                id: item.id,
+                sortOrder: index
+            })));
+        } catch (e) {
+            console.error('Failed to reorder:', e);
+            fetchData(); // Revert to original order on failure
+        }
+    };
 
     const handleDeletePlan = async (id: number) => {
         if (confirm('Are you sure you want to delete this plan? All items in it will also be deleted.')) {
@@ -402,7 +468,9 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onBack }) => {
                         <div className="p-2 bg-orange-50 rounded-lg"><Utensils className="text-orange-600" size={24} /></div>
                     </div>
                     <h3 className="text-slate-500 text-sm font-medium">Meals to Prep Today</h3>
-                    <p className="text-3xl font-bold text-slate-900 mt-1">{stats.chickenMeals + stats.paneerMeals}</p>
+                    <p className="text-3xl font-bold text-slate-900 mt-1">
+                        {Object.values(stats.proteinCounts).reduce((a: number, b: number) => a + b, 0)}
+                    </p>
                 </div>
             </div>
 
@@ -451,21 +519,23 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onBack }) => {
                 <h2 className="text-xl font-bold text-slate-900 mb-4 flex items-center gap-2">
                     <ChefHat className="text-blue-600" /> Today's Prep Sheet
                 </h2>
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                    <div className="bg-orange-50 border border-orange-200 p-6 rounded-xl flex items-center justify-between">
-                        <div>
-                            <p className="text-orange-800 font-medium text-sm">CHICKEN MEALS</p>
-                            <p className="text-4xl font-bold text-orange-900 mt-2">{stats.chickenMeals}</p>
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                    {Object.entries(stats.proteinCounts).map(([protein, count]) => (
+                        <div key={protein} className="bg-white border border-slate-200 p-6 rounded-xl flex items-center justify-between shadow-sm hover:shadow-md transition-shadow">
+                            <div>
+                                <p className="text-slate-500 font-bold text-xs uppercase tracking-wider">{protein} MEALS</p>
+                                <p className="text-4xl font-bold text-slate-900 mt-2">{count as number}</p>
+                            </div>
+                            <div className="p-4 bg-slate-50 rounded-full text-blue-600">
+                                <Utensils size={24} />
+                            </div>
                         </div>
-                        <Utensils size={40} className="text-orange-300" />
-                    </div>
-                    <div className="bg-green-50 border border-green-200 p-6 rounded-xl flex items-center justify-between">
-                        <div>
-                            <p className="text-green-800 font-medium text-sm">PANEER MEALS</p>
-                            <p className="text-4xl font-bold text-green-900 mt-2">{stats.paneerMeals}</p>
+                    ))}
+                    {Object.keys(stats.proteinCounts).length === 0 && (
+                        <div className="col-span-full p-8 text-center bg-slate-50 rounded-xl border border-dashed border-slate-300">
+                            <p className="text-slate-500 font-medium">No active meal subscriptions for today.</p>
                         </div>
-                        <Utensils size={40} className="text-green-300" />
-                    </div>
+                    )}
                 </div>
             </section>
 
@@ -488,113 +558,121 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onBack }) => {
                             </tr>
                         </thead>
                         <tbody className="divide-y divide-slate-100">
-                            {customers.map(c => {
-                                // Find active sub
-                                const activeSub = c.subscriptions?.find((s: any) => s.status === 'ACTIVE');
-                                if (!activeSub) return null;
+                            {customers.flatMap(c => {
+                                // Get all active subscriptions
+                                const activeSubs = c.subscriptions?.filter((s: any) => s.status === 'ACTIVE') || [];
+                                if (activeSubs.length === 0) return [];
 
-                                const activeAddons = activeSub.addons ? Object.keys(activeSub.addons).map(k => {
-                                    // Try to find by ID (loose equality for string/number match) or by exact name match
-                                    const def = addOns.find(a => a.id == k || a.name === k);
-                                    const item = activeSub.addons[k];
-                                    if (item.quantity === 0) return null;
-                                    // Fallback to key 'k' if definition not found, instead of '?'
-                                    return `${def?.name || k} x${item.quantity}`;
-                                }).filter(Boolean).join(', ') : '';
+                                return activeSubs.map((activeSub: any) => {
+                                    const activeAddons = activeSub.addons ? Object.keys(activeSub.addons).map(k => {
+                                        // Try to find by ID (loose equality for string/number match) or by exact name match
+                                        const def = addOns.find(a => a.id == k || a.name === k);
+                                        const item = activeSub.addons[k];
+                                        if (item.quantity === 0) return null;
+                                        // Fallback to key 'k' if definition not found, instead of '?'
+                                        return `${def?.name || k} x${item.quantity}`;
+                                    }).filter(Boolean).join(', ') : '';
 
-                                // Calculate Status Logic Here for Row
-                                const todayStr = new Date().toISOString().split('T')[0];
-                                const log = activeSub.deliveryLogs?.find((l: any) => new Date(l.deliveryTime).toISOString().startsWith(todayStr));
-                                const status = log?.status || 'PENDING';
-                                const getStatusBadge = (s: string) => {
-                                    switch (s) {
-                                        case 'DELIVERED': return <span className="px-2 py-1 rounded-full text-xs font-bold bg-green-100 text-green-700">Delivered</span>;
-                                        case 'ASSIGNED': return <span className="px-2 py-1 rounded-full text-xs font-bold bg-blue-100 text-blue-700">Assigned</span>;
-                                        case 'READY': return <span className="px-2 py-1 rounded-full text-xs font-bold bg-yellow-100 text-yellow-700">Ready</span>;
-                                        default: return <span className="px-2 py-1 rounded-full text-xs font-bold bg-slate-100 text-slate-500">Not Yet Delivered</span>;
-                                    }
-                                };
+                                    // Calculate Status Logic Here for Row
+                                    const todayStr = new Date().toISOString().split('T')[0];
+                                    const todayLogs = activeSub.deliveryLogs?.filter((l: any) => new Date(l.deliveryTime).toISOString().startsWith(todayStr)) || [];
+                                    // Prioritize: DELIVERED > ASSIGNED > READY > PENDING
+                                    const statusPriority: Record<string, number> = { 'DELIVERED': 4, 'ASSIGNED': 3, 'READY': 2, 'PENDING': 1 };
+                                    const log = todayLogs.sort((a: any, b: any) => (statusPriority[b.status] || 0) - (statusPriority[a.status] || 0))[0] || null;
+                                    const status = log?.status || 'PENDING';
+                                    const getStatusBadge = (s: string) => {
+                                        switch (s) {
+                                            case 'DELIVERED': return <span className="px-2 py-1 rounded-full text-xs font-bold bg-green-100 text-green-700">Delivered</span>;
+                                            case 'ASSIGNED': return <span className="px-2 py-1 rounded-full text-xs font-bold bg-blue-100 text-blue-700">Assigned</span>;
+                                            case 'READY': return <span className="px-2 py-1 rounded-full text-xs font-bold bg-yellow-100 text-yellow-700">Ready</span>;
+                                            default: return <span className="px-2 py-1 rounded-full text-xs font-bold bg-slate-100 text-slate-500">Not Yet Delivered</span>;
+                                        }
+                                    };
 
-                                return (
-                                    <tr key={activeSub.id}>
-                                        <td className="px-4 py-3 font-medium">{c.name}</td>
-                                        <td className="px-4 py-3 text-slate-500 max-w-xs truncate" title={activeSub.deliveryAddress || c.address}>{activeSub.deliveryAddress || c.address || 'Loc only'}</td>
-                                        <td className="px-4 py-3">
-                                            <span className={`px-2 py-0.5 rounded text-xs text-white font-bold ${activeSub.protein === 'CHICKEN' ? 'bg-orange-400' : 'bg-green-400'}`}>
-                                                {activeSub.protein}
-                                            </span>
-                                        </td>
-                                        <td className="px-4 py-3 text-slate-600 font-medium">
-                                            {activeAddons || '-'}
-                                        </td>
-                                        <td className="px-4 py-3">
-                                            <div className="flex flex-col items-start gap-1">
-                                                {getStatusBadge(status)}
-                                                {status === 'DELIVERED' && log && (
-                                                    <div className="mt-1 text-xs flex flex-col gap-0.5">
-                                                        <span className="text-slate-600 flex items-center gap-1">
-                                                            🕒 {new Date(log.deliveryTime).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                                                        </span>
-                                                        {log.latitude && log.longitude && (
-                                                            <a
-                                                                href={`https://www.google.com/maps?q=${log.latitude},${log.longitude}`}
-                                                                target="_blank"
-                                                                rel="noreferrer"
-                                                                className="text-blue-500 hover:underline flex items-center gap-1"
-                                                            >
-                                                                <MapPin size={10} /> Location
-                                                            </a>
-                                                        )}
-                                                    </div>
-                                                )}
-                                            </div>
-                                        </td>
-                                        <td className="px-4 py-3">
-                                            {(() => {
-                                                if (status === 'DELIVERED') {
-                                                    return log?.deliveryAgent ? (
-                                                        <span className="text-xs font-bold text-slate-700 flex items-center gap-1">
-                                                            👤 {log.deliveryAgent.name}
-                                                        </span>
-                                                    ) : <span className="text-xs text-slate-400">-</span>;
-                                                }
-
-                                                if (status === 'PENDING') {
-                                                    return (
-                                                        <button
-                                                            onClick={() => handleMarkReady(activeSub.id)}
-                                                            className="bg-orange-100 text-orange-700 hover:bg-orange-200 px-3 py-1 rounded text-xs font-bold border border-orange-200 transition-colors"
-                                                        >
-                                                            Mark Ready
-                                                        </button>
-                                                    );
-                                                }
-
-                                                // If READY or ASSIGNED, show assignment dropdown
-                                                return (
-                                                    <div className="flex flex-col gap-1">
-                                                        {status === 'READY' && <span className="text-[10px] text-green-600 font-bold">READY FOR PICKUP</span>}
-                                                        <div className="flex items-center gap-2">
-                                                            <select
-                                                                className="text-xs border border-slate-300 rounded p-1 max-w-[120px] bg-white shadow-sm"
-                                                                value={log?.userId || ''}
-                                                                onChange={(e) => handleAssignDelivery(activeSub.id, e.target.value)}
-                                                            >
-                                                                <option value="">{status === 'ASSIGNED' ? 'Change Driver' : 'Assign Driver'}</option>
-                                                                {deliveryPartners.map(dp => (
-                                                                    <option key={dp.id} value={dp.id}>{dp.name}</option>
-                                                                ))}
-                                                            </select>
+                                    return (
+                                        <tr key={activeSub.id}>
+                                            <td className="px-4 py-3 font-medium">
+                                                {c.name}
+                                                <div className="text-[10px] text-slate-400">Plan #{activeSub.id}</div>
+                                            </td>
+                                            <td className="px-4 py-3 text-slate-500 max-w-xs truncate" title={activeSub.deliveryAddress || c.address}>{activeSub.deliveryAddress || c.address || 'Loc only'}</td>
+                                            <td className="px-4 py-3">
+                                                <span className={`px-2 py-0.5 rounded text-xs text-white font-bold ${activeSub.protein === 'CHICKEN' ? 'bg-orange-400' : 'bg-green-400'}`}>
+                                                    {activeSub.protein}
+                                                </span>
+                                            </td>
+                                            <td className="px-4 py-3 text-slate-600 font-medium">
+                                                {activeAddons || '-'}
+                                            </td>
+                                            <td className="px-4 py-3">
+                                                <div className="flex flex-col items-start gap-1">
+                                                    {getStatusBadge(status)}
+                                                    {status === 'DELIVERED' && log && (
+                                                        <div className="mt-1 text-xs flex flex-col gap-0.5">
+                                                            <span className="text-slate-600 flex items-center gap-1">
+                                                                🕒 {new Date(log.deliveryTime).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                                                            </span>
+                                                            {log.latitude && log.longitude && (
+                                                                <a
+                                                                    href={`https://www.google.com/maps?q=${log.latitude},${log.longitude}`}
+                                                                    target="_blank"
+                                                                    rel="noreferrer"
+                                                                    className="text-blue-500 hover:underline flex items-center gap-1"
+                                                                >
+                                                                    <MapPin size={10} /> Location
+                                                                </a>
+                                                            )}
                                                         </div>
-                                                        {status === 'ASSIGNED' && log?.deliveryAgent && (
-                                                            <span className="text-[10px] text-blue-600 font-medium">Assigned to: {log.deliveryAgent.name}</span>
-                                                        )}
-                                                    </div>
-                                                );
-                                            })()}
-                                        </td>
-                                    </tr>
-                                )
+                                                    )}
+                                                </div>
+                                            </td>
+                                            <td className="px-4 py-3">
+                                                {(() => {
+                                                    if (status === 'DELIVERED') {
+                                                        return log?.deliveryAgent ? (
+                                                            <span className="text-xs font-bold text-slate-700 flex items-center gap-1">
+                                                                👤 {log.deliveryAgent.name}
+                                                            </span>
+                                                        ) : <span className="text-xs text-slate-400">-</span>;
+                                                    }
+
+                                                    if (status === 'PENDING') {
+                                                        return (
+                                                            <button
+                                                                onClick={() => handleMarkReady(activeSub.id)}
+                                                                className="bg-orange-100 text-orange-700 hover:bg-orange-200 px-3 py-1 rounded text-xs font-bold border border-orange-200 transition-colors"
+                                                            >
+                                                                Mark Ready
+                                                            </button>
+                                                        );
+                                                    }
+
+                                                    // If READY or ASSIGNED, show assignment dropdown
+                                                    return (
+                                                        <div className="flex flex-col gap-1">
+                                                            {status === 'READY' && <span className="text-[10px] text-green-600 font-bold">READY FOR PICKUP</span>}
+                                                            <div className="flex items-center gap-2">
+                                                                <select
+                                                                    className="text-xs border border-slate-300 rounded p-1 max-w-[120px] bg-white shadow-sm"
+                                                                    value={log?.userId || ''}
+                                                                    onChange={(e) => handleAssignDelivery(activeSub.id, e.target.value)}
+                                                                >
+                                                                    <option value="">{status === 'ASSIGNED' ? 'Change Driver' : 'Assign Driver'}</option>
+                                                                    {deliveryPartners.map(dp => (
+                                                                        <option key={dp.id} value={dp.id}>{dp.name}</option>
+                                                                    ))}
+                                                                </select>
+                                                            </div>
+                                                            {status === 'ASSIGNED' && log?.deliveryAgent && (
+                                                                <span className="text-[10px] text-blue-600 font-medium">Assigned to: {log.deliveryAgent.name}</span>
+                                                            )}
+                                                        </div>
+                                                    );
+                                                })()}
+                                            </td>
+                                        </tr>
+                                    );
+                                });
                             })}
                             {customers.filter(c => c.subscriptions?.some((s: any) => s.status === 'ACTIVE')).length === 0 && (
                                 <tr>
@@ -660,52 +738,12 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onBack }) => {
                                 </div>
                             </div>
                             <div className="overflow-x-auto">
-                                <table className="w-full text-left min-w-[800px]">
-                                    <thead className="bg-white text-xs font-semibold text-slate-500 uppercase border-b border-slate-100">
-                                        <tr>
-                                            <th className="px-6 py-3">Image</th>
-                                            <th className="px-6 py-3">Name</th>
-                                            <th className="px-6 py-3">Stats</th>
-                                            <th className="px-6 py-3">Description</th>
-                                            <th className="px-6 py-3">Price</th>
-                                            <th className="px-6 py-3 text-right">Action</th>
-                                        </tr>
-                                    </thead>
-                                    <tbody className="divide-y divide-slate-50">
-                                        {plan.items?.map((item: any) => (
-                                            <tr key={item.id} className="hover:bg-slate-50">
-                                                <td className="px-6 py-4">
-                                                    <div className="w-12 h-12 rounded-lg bg-slate-100 overflow-hidden border border-slate-200">
-                                                        {item.image ? (
-                                                            <img src={`${BASE_URL}${item.image}`} alt={item.name} className="w-full h-full object-cover" />
-                                                        ) : (
-                                                            <div className="w-full h-full flex items-center justify-center text-slate-300"><Utensils size={16} /></div>
-                                                        )}
-                                                    </div>
-                                                </td>
-                                                <td className="px-6 py-4">
-                                                    <p className="font-medium text-slate-900">{item.name}</p>
-                                                    <p className="text-xs text-slate-400">{item.slug}</p>
-                                                </td>
-                                                <td className="px-6 py-4 text-xs text-slate-500">
-                                                    <p>{item.calories} kCal</p>
-                                                    <p>{item.proteinAmount}g Protein</p>
-                                                </td>
-                                                <td className="px-6 py-4 text-sm text-slate-600 max-w-xs truncate" title={item.description}>
-                                                    {item.description}
-                                                </td>
-                                                <td className="px-6 py-4 font-bold text-slate-900">₹{item.price}</td>
-                                                <td className="px-6 py-4 text-right flex justify-end gap-2">
-                                                    <button onClick={() => handleEditItemClick(item)} className="text-blue-500 hover:text-blue-700 p-2"><Edit2 size={16} /></button>
-                                                    <button onClick={() => handleDeleteMenuItem(item.id)} className="text-red-500 hover:text-red-700 p-2"><Trash2 size={16} /></button>
-                                                </td>
-                                            </tr>
-                                        ))}
-                                        {(!plan.items || plan.items.length === 0) && (
-                                            <tr><td colSpan={6} className="p-6 text-center text-slate-400 text-sm">No items in this plan yet.</td></tr>
-                                        )}
-                                    </tbody>
-                                </table>
+                                <SortableMenuTable
+                                    items={plan.items || []}
+                                    onReorder={(reorderedItems) => handleReorderItems(plan.id, reorderedItems)}
+                                    onEdit={handleEditItemClick}
+                                    onDelete={handleDeleteMenuItem}
+                                />
                             </div>
                         </div>
                     ))}
@@ -768,13 +806,34 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onBack }) => {
         const filtered = customers.filter(c => {
             const matchesSearch = c.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
                 c.email.toLowerCase().includes(searchTerm.toLowerCase());
-            return matchesSearch;
+
+            if (!matchesSearch) return false;
+
+            const hasActivePlan = c.subscriptions?.some((s: any) => s.status === 'ACTIVE');
+
+            if (statusFilter === 'ACTIVE') return hasActivePlan;
+            if (statusFilter === 'INACTIVE') return !hasActivePlan;
+
+            return true;
         });
 
         return (
             <div className="animate-in fade-in duration-500">
                 {/* Filters & Actions */}
                 <div className="flex flex-col md:flex-row justify-between items-center mb-6 gap-4">
+                    {/* Status Filter Tabs */}
+                    <div className="flex bg-slate-100 p-1 rounded-lg">
+                        {(['ALL', 'ACTIVE', 'INACTIVE'] as const).map(status => (
+                            <button
+                                key={status}
+                                onClick={() => setStatusFilter(status)}
+                                className={`px-4 py-2 text-xs font-bold rounded-md transition-all ${statusFilter === status ? 'bg-white text-blue-600 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
+                            >
+                                {status === 'ALL' ? 'All Users' : status === 'ACTIVE' ? 'Active Plans' : 'No Active Plan'}
+                            </button>
+                        ))}
+                    </div>
+
                     <div className="relative w-full md:w-auto">
                         <Search className="absolute left-3 top-2.5 text-slate-400" size={18} />
                         <input
@@ -1014,6 +1073,12 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onBack }) => {
                     <button onClick={() => setActiveView('menu')} className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg transition-colors ${activeView === 'menu' ? 'bg-blue-600 text-white' : 'hover:bg-slate-800'}`}>
                         <Utensils size={20} /> Kitchen & Menu
                     </button>
+                    <button onClick={() => setActiveView('settings')} className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg transition-colors ${activeView === 'settings' ? 'bg-blue-600 text-white' : 'hover:bg-slate-800'}`}>
+                        <Users size={20} /> Settings
+                    </button>
+                    <button onClick={() => setActiveView('notifications')} className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg transition-colors ${activeView === 'notifications' ? 'bg-blue-600 text-white' : 'hover:bg-slate-800'}`}>
+                        <Bell size={20} /> Notifications
+                    </button>
                 </nav>
 
                 <div className="p-4 border-t border-slate-800">
@@ -1035,6 +1100,10 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onBack }) => {
                     {activeView === 'customers' && (
                         <AdminCustomerList
                             customers={customers}
+                            total={totalUsers}
+                            totalPages={totalPages}
+                            currentPage={currentPage}
+                            setPage={setCurrentPage}
                             searchTerm={searchTerm}
                             setSearchTerm={setSearchTerm}
                             setSelectedCustomer={setSelectedCustomer}
@@ -1043,6 +1112,79 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onBack }) => {
                         />
                     )}
                     {activeView === 'menu' && renderKitchenMenu()}
+                    {activeView === 'notifications' && <AdminNotificationsView />}
+                    {activeView === 'settings' && (
+                        <div className="max-w-2xl mx-auto bg-white p-8 rounded-xl shadow-sm border border-slate-200">
+                            <h2 className="text-2xl font-bold mb-6 flex items-center gap-2"><MapPin className="text-blue-600" /> Service Area Settings</h2>
+
+                            <div className="space-y-6">
+                                <div className="bg-blue-50 p-4 rounded-lg border border-blue-100 text-sm text-blue-800">
+                                    <p className="font-bold mb-1">How this works:</p>
+                                    <p>Customers must drop a pin within the radius of your outlet to place an order. If they are outside, they will be blocked.</p>
+                                </div>
+
+                                <div className="grid grid-cols-2 gap-4">
+                                    <div className="col-span-2 flex justify-end">
+                                        <button
+                                            onClick={() => setIsLocationLocked(!isLocationLocked)}
+                                            className="text-sm font-medium text-blue-600 hover:text-blue-800 flex items-center gap-1"
+                                            title={isLocationLocked ? "Unlock to edit" : "Lock coordinates"}
+                                        >
+                                            {isLocationLocked ? <Lock size={16} /> : <Unlock size={16} />}
+                                            {isLocationLocked ? "Unlock Coordinates" : "Lock Coordinates"}
+                                        </button>
+                                    </div>
+                                    <div>
+                                        <label className="block text-sm font-bold text-slate-700 mb-1">Outlet Latitude</label>
+                                        <input
+                                            type="number"
+                                            step="0.000000000000001"
+                                            value={serviceArea.outletLat}
+                                            onChange={e => setServiceArea({ ...serviceArea, outletLat: parseFloat(e.target.value) })}
+                                            className={`w-full p-2 border rounded ${isLocationLocked ? 'bg-slate-100 text-slate-500 cursor-not-allowed' : ''}`}
+                                            disabled={isLocationLocked}
+                                        />
+                                    </div>
+                                    <div>
+                                        <label className="block text-sm font-bold text-slate-700 mb-1">Outlet Longitude</label>
+                                        <input
+                                            type="number"
+                                            step="0.000000000000001"
+                                            value={serviceArea.outletLng}
+                                            onChange={e => setServiceArea({ ...serviceArea, outletLng: parseFloat(e.target.value) })}
+                                            className={`w-full p-2 border rounded ${isLocationLocked ? 'bg-slate-100 text-slate-500 cursor-not-allowed' : ''}`}
+                                            disabled={isLocationLocked}
+                                        />
+                                    </div>
+                                </div>
+
+                                <div>
+                                    <label className="block text-sm font-bold text-slate-700 mb-2">Service Radius: {serviceArea.serviceRadiusKm} KM</label>
+                                    <input
+                                        type="range"
+                                        min="1"
+                                        max="50"
+                                        step="0.5"
+                                        value={serviceArea.serviceRadiusKm}
+                                        onChange={e => setServiceArea({ ...serviceArea, serviceRadiusKm: parseFloat(e.target.value) })}
+                                        className="w-full h-2 bg-slate-200 rounded-lg appearance-none cursor-pointer"
+                                    />
+                                    <div className="flex justify-between text-xs text-slate-400 mt-1">
+                                        <span>1 KM</span>
+                                        <span>25 KM</span>
+                                        <span>50 KM</span>
+                                    </div>
+                                </div>
+
+                                <button
+                                    onClick={handleSaveSettings}
+                                    className="w-full bg-blue-600 text-white py-3 rounded-lg font-bold hover:bg-blue-700 transition-colors"
+                                >
+                                    Save Service Area
+                                </button>
+                            </div>
+                        </div>
+                    )}
                     {renderCustomerDetails()}
                 </div>
             </main>

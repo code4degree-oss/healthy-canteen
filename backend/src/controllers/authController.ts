@@ -3,7 +3,7 @@ import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
 import User from '../models/User';
 
-const SECRET_KEY = process.env.JWT_SECRET || 'supersecretkey';
+const SECRET_KEY = process.env.JWT_SECRET || 'dev-only-fallback-key';
 
 export const register = async (req: Request, res: Response) => {
     try {

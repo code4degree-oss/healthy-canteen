@@ -34,7 +34,7 @@ export const AuthPage: React.FC<AuthPageProps> = ({ onLoginSuccess, onBack }) =>
 
     useGoogleOneTapLogin({
         onSuccess: handleGoogleSuccess,
-        onError: () => console.log('Google One Tap Failed'),
+        onError: () => console.warn('Google One Tap Failed'),
     });
 
     const handleSubmit = async (e: React.FormEvent) => {
@@ -174,7 +174,7 @@ export const AuthPage: React.FC<AuthPageProps> = ({ onLoginSuccess, onBack }) =>
                         <div className="w-full h-px bg-gray-300 my-2"></div>
                         <GoogleLogin
                             onSuccess={handleGoogleSuccess}
-                            onError={() => console.log('Login Failed')}
+                            onError={() => console.warn('Login Failed')}
                             useOneTap
                         />
                     </div>

@@ -8,23 +8,57 @@ import Subscription from '../models/Subscription';
 import bcrypt from 'bcryptjs';
 
 import DeliveryLog from '../models/DeliveryLog';
+import Notification from '../models/Notification';
 
 // --- USERS ---
 
 export const getAllUsers = async (req: Request, res: Response) => {
     try {
-        const users = await User.findAll({
-            attributes: { exclude: ['password'] },
+        const page = parseInt(req.query.page as string) || 1;
+        const limit = parseInt(req.query.limit as string) || 10;
+        const offset = (page - 1) * limit;
+        const search = (req.query.search as string) || '';
+
+        const whereClause = search ? {
+            [Op.or]: [
+                { name: { [Op.like]: `%${search}%` } },
+                { email: { [Op.like]: `%${search}%` } }
+            ]
+        } : {};
+
+        const { count, rows } = await User.findAndCountAll({
+            where: whereClause,
+            attributes: ['id', 'name', 'email', 'role', 'createdAt'],
             include: [
-                { model: Order, as: 'orders' },
+                {
+                    model: Order,
+                    as: 'orders',
+                    attributes: ['id', 'totalPrice', 'createdAt', 'days', 'mealsPerDay']
+                },
                 {
                     model: Subscription,
                     as: 'subscriptions',
-                    include: [{ model: DeliveryLog, as: 'deliveryLogs' }]
+                    attributes: ['id', 'status', 'protein', 'mealsPerDay', 'daysRemaining', 'deliveryAddress', 'addons'],
+                    include: [{
+                        model: DeliveryLog,
+                        as: 'deliveryLogs',
+                        attributes: ['id', 'status', 'deliveryTime', 'userId'],
+                        include: [{ model: User, as: 'deliveryAgent', attributes: ['id', 'name'] }]
+                    }]
                 }
-            ]
+            ],
+            limit,
+            offset,
+            distinct: true, // Ensure correct count with includes
+            order: [['createdAt', 'DESC']]
         });
-        res.json(users);
+
+        res.json({
+            users: rows,
+            total: count,
+            totalPages: Math.ceil(count / limit),
+            currentPage: page
+        });
     } catch (error) {
         res.status(500).json({ message: 'Error fetching users', error });
     }
@@ -105,14 +139,30 @@ export const getAddOns = async (req: Request, res: Response) => {
 export const addAddOn = async (req: Request, res: Response) => {
     try {
         const { name, price, description, allowSubscription } = req.body;
-        const image = req.file ? `/uploads/${req.file.filename}` : null;
+
+        let image = null;
+        let thumbnail = null;
+
+        if (req.file) {
+            // Process single file using utility (wrap in array)
+            // Note: 'req.file' comes from single() upload, but our utility expects array if reusing 'processUploadedImages'. 
+            // Or we can manually process. 
+            // Since 'processUploadedImages' accepts array, let's cast 'req.file' to array.
+            const files = [req.file];
+            const processed = await import('../utils/fileUpload').then(m => m.processUploadedImages(files, m.UploadFolder.ADDONS));
+            if (processed.length > 0) {
+                image = `/uploads${processed[0].original}`;
+                thumbnail = `/uploads${processed[0].thumbnail}`;
+            }
+        }
 
         const addon = await AddOn.create({
             name,
             price,
             description,
             allowSubscription: allowSubscription === 'true' || allowSubscription === true,
-            image
+            image,
+            thumbnail
         });
         res.status(201).json(addon);
     } catch (error) {
@@ -147,7 +197,18 @@ export const updateAddOn = async (req: Request, res: Response) => {
         }
 
         if (req.file) {
-            addon.image = `/uploads/${req.file.filename}`;
+            // Process single file
+            const files = [req.file];
+            // Import utility dynamically to avoid circular dep issues in some envs, or just import at top. 
+            // Already imported at top? No, 'processUploadedImages' is in '../utils/fileUpload'.
+            // AdminController didn't import it yet. I need to add import or dynamic import.
+            // Dynamic is safer for this scoped change.
+            const { processUploadedImages, UploadFolder } = await import('../utils/fileUpload');
+            const processed = await processUploadedImages(files, UploadFolder.ADDONS);
+            if (processed.length > 0) {
+                addon.image = `/uploads${processed[0].original}`;
+                addon.thumbnail = `/uploads${processed[0].thumbnail}`;
+            }
         }
 
         await addon.save();
@@ -222,6 +283,17 @@ export const assignDelivery = async (req: Request, res: Response) => {
                 userId: deliveryUserId,
                 status: 'ASSIGNED',
                 deliveryTime: new Date() // Planned time (now)
+            });
+        }
+
+        // Notify User
+        const sub = await Subscription.findByPk(subscriptionId);
+        if (sub) {
+            await Notification.create({
+                userId: sub.userId,
+                title: 'Delivery Assigned! 🚚',
+                message: 'Yo! Your fuel is on the move! Get ready to feast! 🚀',
+                type: 'delivery'
             });
         }
 

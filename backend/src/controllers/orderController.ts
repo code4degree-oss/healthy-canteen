@@ -1,7 +1,10 @@
 import { Request, Response } from 'express';
+import { Op } from 'sequelize';
 import Order from '../models/Order';
 import Subscription from '../models/Subscription';
 import { AuthRequest } from '../types/express'; // We'll need to define this type or use 'any' for now
+import Settings from '../models/Settings';
+import { getDistanceKm } from '../utils/haversine';
 
 // Simple rate map (should ideally be shared or fetched from DB)
 const RATES: any = {
@@ -30,6 +33,35 @@ export const createOrder = async (req: Request, res: Response) => {
         if (!protein || !days || !mealsPerDay || !startDate) {
             await t.rollback();
             return res.status(400).json({ message: 'Missing required fields: protein, days, mealsPerDay, startDate' });
+        }
+
+        // --- SERVICE AREA CHECK ---
+        if (deliveryLat && deliveryLng) {
+            // Optimization: Fetch all settings in one query
+            const allSettings = await Settings.findAll({
+                where: {
+                    key: { [Op.in]: ['outletLat', 'outletLng', 'serviceRadiusKm'] }
+                }
+            });
+
+            const settingsMap = allSettings.reduce((acc: any, s: any) => {
+                acc[s.key] = s.value;
+                return acc;
+            }, {});
+
+            const outletLat = parseFloat(settingsMap['outletLat'] || '18.654949627383616');
+            const outletLng = parseFloat(settingsMap['outletLng'] || '73.84475261136429');
+            const maxRadius = parseFloat(settingsMap['serviceRadiusKm'] || '5');
+
+            const distance = getDistanceKm(outletLat, outletLng, deliveryLat, deliveryLng);
+            if (distance > maxRadius) {
+                await t.rollback();
+                return res.status(400).json({
+                    message: `Sorry! We don't deliver to your area yet. You are ${distance.toFixed(1)}km away, but we only deliver within ${maxRadius}km.`,
+                    distance: parseFloat(distance.toFixed(1)),
+                    maxRadius
+                });
+            }
         }
 
         // Fetch the menu item to get the correct price
@@ -151,12 +183,12 @@ export const getUserOrders = async (req: Request, res: Response) => {
 export const getActiveSubscription = async (req: Request, res: Response) => {
     try {
         const userId = (req as any).user.id;
-        const subscription = await Subscription.findOne({
+        const subscriptions = await Subscription.findAll({
             where: { userId, status: 'ACTIVE' },
             order: [['createdAt', 'DESC']]
         });
-        res.status(200).json(subscription); // Returns null if no active sub
+        res.status(200).json(subscriptions); // Returns array
     } catch (error) {
-        res.status(500).json({ message: 'Failed to fetch subscription', error });
+        res.status(500).json({ message: 'Failed to fetch subscriptions', error });
     }
 };

@@ -14,6 +14,8 @@ class Subscription extends Model {
     public pausesRemaining!: number;
     public protein!: string;
     public mealsPerDay!: number;
+    public deliveryAddress!: string;
+    public addons!: any;
     public readonly createdAt!: Date;
     public readonly updatedAt!: Date;
 }
@@ -81,7 +83,16 @@ Subscription.init(
     },
     {
         sequelize,
+        modelName: 'Subscription',
         tableName: 'subscriptions',
+        indexes: [
+            {
+                fields: ['userId']
+            },
+            {
+                fields: ['status']
+            }
+        ]
     }
 );
 

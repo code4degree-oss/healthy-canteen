@@ -1,26 +1,16 @@
 import { Request, Response } from 'express';
 import Plan from '../models/Plan';
 import MenuItem from '../models/MenuItem';
-import multer from 'multer';
-import path from 'path';
-import fs from 'fs';
+import AddOn from '../models/AddOn';
+import {
+    menuUpload,
+    processUploadedImages,
+    deleteFiles,
+    UploadFolder
+} from '../utils/fileUpload';
 
-// --- Image Upload Config ---
-const storage = multer.diskStorage({
-    destination: (req, file, cb) => {
-        const uploadPath = path.join(__dirname, '../../uploads');
-        if (!fs.existsSync(uploadPath)) {
-            fs.mkdirSync(uploadPath, { recursive: true });
-        }
-        cb(null, uploadPath);
-    },
-    filename: (req, file, cb) => {
-        const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9);
-        cb(null, uniqueSuffix + path.extname(file.originalname));
-    }
-});
-
-export const upload = multer({ storage: storage });
+// Export the menu upload middleware
+export const upload = menuUpload;
 
 // --- Controllers ---
 
@@ -35,6 +25,18 @@ export const getMenu = async (req: Request, res: Response) => {
         res.status(200).json(plans);
     } catch (error) {
         res.status(500).json({ message: 'Failed to fetch menu', error });
+    }
+};
+
+/**
+ * Get all AddOns (Public)
+ */
+export const getAddOns = async (req: Request, res: Response) => {
+    try {
+        const addons = await AddOn.findAll();
+        res.status(200).json(addons);
+    } catch (error) {
+        res.status(500).json({ message: 'Failed to fetch addons', error });
     }
 };
 
@@ -80,16 +82,25 @@ export const createPlan = async (req: Request, res: Response) => {
 
 /**
  * Create a new Menu Item (Supports multiple images via `images` field)
+ * Images are automatically compressed and thumbnails are generated
  */
 export const createMenuItem = async (req: Request, res: Response) => {
     try {
         const { planId, name, slug, description, proteinAmount, calories, price, color } = req.body;
 
-        // Handle multiple file uploads
+        // Handle multiple file uploads with compression and thumbnail generation
         let imageUrls: string[] = [];
+        let thumbnailPath = '';
+
         const files = req.files as Express.Multer.File[];
         if (files && files.length > 0) {
-            imageUrls = files.map(file => `/uploads/${file.filename}`);
+            // Process images: compress and generate thumbnails
+            const processedImages = await processUploadedImages(files, UploadFolder.MENU_ITEMS);
+            imageUrls = processedImages.map(img => `/uploads${img.original}`);
+            // Use the first image's thumbnail as the main thumbnail
+            if (processedImages.length > 0) {
+                thumbnailPath = `/uploads${processedImages[0].thumbnail}`;
+            }
         }
 
         // For backward compatibility, also set first image as `image`
@@ -105,6 +116,7 @@ export const createMenuItem = async (req: Request, res: Response) => {
             price,
             color,
             image: primaryImage,
+            thumbnail: thumbnailPath,
             images: imageUrls
         });
 
@@ -117,6 +129,7 @@ export const createMenuItem = async (req: Request, res: Response) => {
 
 /**
  * Update a Menu Item (Supports multiple images via multipart form)
+ * Images are automatically compressed and thumbnails are generated
  */
 export const updateMenuItem = async (req: Request, res: Response) => {
     try {
@@ -137,20 +150,31 @@ export const updateMenuItem = async (req: Request, res: Response) => {
         // Handle multiple file uploads if provided
         const files = req.files as Express.Multer.File[];
         if (files && files.length > 0) {
-            const imageUrls = files.map(file => `/uploads/${file.filename}`);
+            // Delete old images first
+            if (item.images && item.images.length > 0) {
+                await deleteFiles(item.images);
+            }
+
+            // Process new images: compress and generate thumbnails
+            const processedImages = await processUploadedImages(files, UploadFolder.MENU_ITEMS);
+            const imageUrls = processedImages.map(img => `/uploads${img.original}`);
             item.images = imageUrls;
             item.image = imageUrls[0]; // Also update primary image for backward compatibility
+            if (processedImages.length > 0) {
+                item.thumbnail = `/uploads${processedImages[0].thumbnail}`;
+            }
         }
 
         await item.save();
         res.status(200).json(item);
     } catch (error) {
+        console.error("Update Item Error:", error);
         res.status(500).json({ message: 'Failed to update item', error });
     }
 };
 
 /**
- * Delete a Menu Item
+ * Delete a Menu Item (Also cleans up associated image files)
  */
 export const deleteMenuItem = async (req: Request, res: Response) => {
     try {
@@ -158,13 +182,16 @@ export const deleteMenuItem = async (req: Request, res: Response) => {
         const item = await MenuItem.findByPk(id);
         if (!item) return res.status(404).json({ message: 'Item not found' });
 
-        // Optional: Delete image file if exists
-        // const imagePath = path.join(__dirname, '../../', item.image);
-        // if (fs.existsSync(imagePath)) fs.unlinkSync(imagePath);
+        // Delete associated image files
+        if (item.images && item.images.length > 0) {
+            const deletedCount = await deleteFiles(item.images);
+            console.log(`🗑️ Deleted ${deletedCount} image files for item ${item.name}`);
+        }
 
         await item.destroy();
-        res.status(200).json({ message: 'Item deleted' });
+        res.status(200).json({ message: 'Item deleted successfully' });
     } catch (error) {
+        console.error("Delete Item Error:", error);
         res.status(500).json({ message: 'Failed to delete item', error });
     }
 };
@@ -192,5 +219,32 @@ export const deletePlan = async (req: Request, res: Response) => {
     } catch (error) {
         console.error("Delete Plan Error:", error);
         res.status(500).json({ message: 'Failed to delete plan', error });
+    }
+};
+
+/**
+ * Reorder Menu Items (for drag-and-drop)
+ * Expects an array of { id, sortOrder } in request body
+ */
+export const reorderMenuItems = async (req: Request, res: Response) => {
+    try {
+        const { items } = req.body;
+
+        if (!items || !Array.isArray(items)) {
+            return res.status(400).json({ message: 'Invalid items array' });
+        }
+
+        // Update sort order for each item
+        for (const item of items) {
+            await MenuItem.update(
+                { sortOrder: item.sortOrder },
+                { where: { id: item.id } }
+            );
+        }
+
+        res.status(200).json({ message: 'Items reordered successfully' });
+    } catch (error) {
+        console.error("Reorder Items Error:", error);
+        res.status(500).json({ message: 'Failed to reorder items', error });
     }
 };

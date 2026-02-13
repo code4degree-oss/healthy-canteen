@@ -3,6 +3,7 @@ import { Op } from 'sequelize';
 import Subscription from '../models/Subscription';
 import User from '../models/User';
 import Order from '../models/Order';
+import DeliveryLog from '../models/DeliveryLog';
 
 export const getDeliveryQueue = async (req: Request, res: Response) => {
     try {
@@ -53,8 +54,6 @@ export const getDeliveryQueue = async (req: Request, res: Response) => {
     }
 };
 
-import DeliveryLog from '../models/DeliveryLog';
-
 export const confirmDelivery = async (req: Request, res: Response) => {
     try {
         const { subscriptionId, lat, lng } = req.body;
@@ -64,15 +63,37 @@ export const confirmDelivery = async (req: Request, res: Response) => {
             return res.status(400).json({ message: 'Subscription ID is required' });
         }
 
-        // Create Delivery Log
-        await DeliveryLog.create({
-            subscriptionId,
-            userId,
-            latitude: lat,
-            longitude: lng,
-            status: 'DELIVERED',
-            deliveryTime: new Date()
+        // Find existing log for today (created by markReady/assignDelivery)
+        const today = new Date();
+        const startOfDay = new Date(new Date().setHours(0, 0, 0, 0));
+        const endOfDay = new Date(new Date().setHours(23, 59, 59, 999));
+
+        let log = await DeliveryLog.findOne({
+            where: {
+                subscriptionId,
+                deliveryTime: { [Op.between]: [startOfDay, endOfDay] }
+            }
         });
+
+        if (log) {
+            // Update existing log to DELIVERED with location
+            log.status = 'DELIVERED';
+            log.latitude = lat;
+            log.longitude = lng;
+            log.userId = userId;
+            log.deliveryTime = new Date(); // Update to actual delivery time
+            await log.save();
+        } else {
+            // No existing log — create a new DELIVERED log
+            await DeliveryLog.create({
+                subscriptionId,
+                userId,
+                latitude: lat,
+                longitude: lng,
+                status: 'DELIVERED',
+                deliveryTime: new Date()
+            });
+        }
 
         res.json({ message: 'Delivery confirmed successfully' });
     } catch (error) {

@@ -38,7 +38,7 @@ export const orders = {
 };
 
 export const admin = {
-    getAllUsers: () => api.get('/admin/users'),
+    getUsers: (page = 1, limit = 10, search = '') => api.get(`/admin/users?page=${page}&limit=${limit}&search=${encodeURIComponent(search)}`),
     createUser: (data: any) => api.post('/admin/users', data),
     deleteUser: (id: string) => api.delete(`/admin/users/${id}`),
 
@@ -48,7 +48,6 @@ export const admin = {
     // Menu (Public/Admin Mixed in backend, but accessed via these for management)
     // Menu Management
     getMenu: () => api.get('/menu'),
-    updateMenu: () => api.get('/menu'), // Use same endpoint for now or specific refresh logic
 
     // Admin Menu Operations
     createPlan: (data: any) => api.post('/menu/plans', data),
@@ -61,6 +60,7 @@ export const admin = {
         headers: { 'Content-Type': 'multipart/form-data' }
     }),
     deleteMenuItem: (id: number) => api.delete(`/menu/items/${id}`),
+    reorderMenuItems: (items: { id: number; sortOrder: number }[]) => api.put('/menu/items/reorder', { items }),
 
     // Addons
     getAddOns: () => api.get('/admin/addons'),
@@ -89,7 +89,22 @@ export const subscriptions = {
 };
 
 export const menu = {
-    getAll: () => api.get('/menu')
+    getAll: () => api.get('/menu'),
+    getAddOns: () => api.get('/menu/addons')
+};
+
+export const settings = {
+    getServiceArea: () => api.get('/settings/service-area'),
+    updateServiceArea: (data: { outletLat?: number; outletLng?: number; serviceRadiusKm?: number }) =>
+        api.put('/settings/service-area', data),
+};
+
+export const notifications = {
+    getAll: () => api.get('/notifications'),
+    markRead: (id: number) => api.put(`/notifications/${id}/read`),
+    delete: (id: number) => api.delete(`/notifications/${id}`),
+    broadcast: (data: { title: string, message: string, type: 'info' | 'delivery' | 'alert' | 'success' }) => api.post('/notifications/broadcast', data),
+    getSent: () => api.get('/notifications/sent')
 };
 
 export default api;

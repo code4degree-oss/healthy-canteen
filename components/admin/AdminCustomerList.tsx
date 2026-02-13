@@ -3,6 +3,10 @@ import { Search, Plus, Trash2 } from 'lucide-react';
 
 interface AdminCustomerListProps {
     customers: any[];
+    total: number;
+    totalPages: number;
+    currentPage: number;
+    setPage: (page: number) => void;
     searchTerm: string;
     setSearchTerm: (term: string) => void;
     setSelectedCustomer: (customer: any) => void;
@@ -12,17 +16,18 @@ interface AdminCustomerListProps {
 
 export const AdminCustomerList: React.FC<AdminCustomerListProps> = ({
     customers,
+    total,
+    totalPages,
+    currentPage,
+    setPage,
     searchTerm,
     setSearchTerm,
     setSelectedCustomer,
     setShowCreateUserModal,
     handleDeleteUser
 }) => {
-    const filtered = customers.filter(c => {
-        const matchesSearch = c.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-            c.email.toLowerCase().includes(searchTerm.toLowerCase());
-        return matchesSearch;
-    });
+    // Client-side filtering is removed since we have server-side search
+    const filtered = customers;
 
     return (
         <div className="animate-in fade-in duration-500">
@@ -91,6 +96,31 @@ export const AdminCustomerList: React.FC<AdminCustomerListProps> = ({
                     </tbody>
                 </table>
             </div>
+
+            {/* Pagination Controls */}
+            {totalPages > 1 && (
+                <div className="flex justify-between items-center mt-6">
+                    <span className="text-sm text-slate-500">
+                        Showing page {currentPage} of {totalPages} ({total} total users)
+                    </span>
+                    <div className="flex gap-2">
+                        <button
+                            disabled={currentPage === 1}
+                            onClick={() => setPage(currentPage - 1)}
+                            className="px-4 py-2 bg-white border border-slate-300 rounded hover:bg-slate-50 disabled:opacity-50 disabled:cursor-not-allowed"
+                        >
+                            Previous
+                        </button>
+                        <button
+                            disabled={currentPage === totalPages}
+                            onClick={() => setPage(currentPage + 1)}
+                            className="px-4 py-2 bg-white border border-slate-300 rounded hover:bg-slate-50 disabled:opacity-50 disabled:cursor-not-allowed"
+                        >
+                            Next
+                        </button>
+                    </div>
+                </div>
+            )}
         </div>
     );
 };

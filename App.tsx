@@ -131,18 +131,19 @@ const HomePage: React.FC<HomePageProps> = ({ scrolled, isLoggedIn, onLogout, onG
   return (
     <div className="min-h-screen overflow-x-hidden selection:bg-quirky-green selection:text-black">
       {/* Navbar */}
-      <nav className="fixed top-2 md:top-4 left-0 right-0 z-50 transition-all duration-300 pointer-events-none flex justify-start px-4">
+      <nav className="fixed top-2 md:top-4 left-0 right-0 z-50 transition-all duration-300 pointer-events-none flex justify-between items-center px-4 md:px-8">
         {/* Logo on far left */}
-        <div onClick={() => window.scrollTo({ top: 0, behavior: 'smooth' })} className="pointer-events-auto cursor-pointer shrink-0 mr-4">
-          <img src="/logo.jpg" alt="Healthy Canteen" className="h-10 md:h-12 w-auto" />
+        <div onClick={() => window.scrollTo({ top: 0, behavior: 'smooth' })} className="pointer-events-auto cursor-pointer shrink-0">
+          <img src="/logo-green-full.png" alt="The Healthy Canteen" className="h-16 md:h-24 w-auto object-contain drop-shadow-md py-1" />
         </div>
 
-        {/* Pill navbar moved to left */}
+        {/* Pill navbar moved to right */}
         <div className={`pointer-events-auto px-4 py-2 rounded-full flex items-center gap-2 md:gap-4 transition-all duration-300 bg-white border-2 border-quirky-black overflow-x-auto no-scrollbar ${scrolled ? 'shadow-hard scale-95' : 'shadow-none'}`}>
-          <Logo isFunky={true} className="text-sm md:text-xl" />
+          {/* Removed text Logo based on sketch feedback */}
 
+          {/* Moved JOIN NOW logic inside or keep same? User said "pill shape have to move right". Let's keep content same but move container right. */}
           <button
-            className="px-3 py-1.5 md:px-4 md:py-1.5 rounded-full transition-colors text-[10px] md:text-xs font-bold ml-auto md:ml-2 bg-quirky-green text-quirky-black font-heading border border-quirky-black hover:bg-green-400 shrink-0 whitespace-nowrap"
+            className="px-3 py-1.5 md:px-4 md:py-1.5 rounded-full transition-colors text-[10px] md:text-xs font-bold bg-quirky-green text-quirky-black font-heading border border-quirky-black hover:bg-green-400 shrink-0 whitespace-nowrap"
             onClick={() => navigate('/order')}
           >
             JOIN NOW

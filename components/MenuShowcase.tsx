@@ -96,9 +96,19 @@ export const MenuShowcase: React.FC = () => {
                                         onClick={() => setSelectedItem(item)}
                                         className={`flex-1 p-6 md:p-8 border-3 border-black rounded-2xl transition-all relative group overflow-hidden ${selectedItem?.id === item.id ? 'bg-quirky-pink text-white shadow-hard translate-x-1 -translate-y-1' : 'bg-white shadow-hard hover:bg-gray-50'}`}
                                     >
-                                        <div className="relative z-10 flex justify-between items-center">
-                                            <span className="font-heading text-2xl md:text-3xl uppercase">{item.name}</span>
-                                            {selectedItem?.id === item.id && <Check size={28} className="border-2 border-black rounded-full p-0.5 bg-black text-white" />}
+                                        <div className="relative z-10 flex justify-between items-center gap-4">
+                                            <div className="flex items-center gap-4">
+                                                {/* Thumbnail Image */}
+                                                {(item.thumbnail || item.image) && (
+                                                    <img
+                                                        src={`${BASE_URL}${item.thumbnail || item.image}`}
+                                                        alt={item.name}
+                                                        className="w-16 h-16 object-cover rounded-lg border-2 border-black bg-gray-100"
+                                                    />
+                                                )}
+                                                <span className="font-heading text-xl md:text-2xl uppercase text-left">{item.name}</span>
+                                            </div>
+                                            {selectedItem?.id === item.id && <Check size={28} className="border-2 border-black rounded-full p-0.5 bg-black text-white shrink-0" />}
                                         </div>
                                     </button>
                                 ))
