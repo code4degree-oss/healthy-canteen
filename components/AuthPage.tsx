@@ -175,7 +175,6 @@ export const AuthPage: React.FC<AuthPageProps> = ({ onLoginSuccess, onBack }) =>
                         <GoogleLogin
                             onSuccess={handleGoogleSuccess}
                             onError={() => console.warn('Login Failed')}
-                            useOneTap
                         />
                     </div>
                 </form>

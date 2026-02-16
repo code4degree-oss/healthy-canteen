@@ -33,8 +33,10 @@ app.use(express.json());
 // --- SECURITY MIDDLEWARE (must be before routes) ---
 
 // 1. Helmet: Secure HTTP Headers
+// 1. Helmet: Secure HTTP Headers
 app.use(helmet({
     crossOriginResourcePolicy: { policy: "cross-origin" }, // Allow images to be loaded by frontend
+    crossOriginOpenerPolicy: { policy: "same-origin-allow-popups" }, // Allow Google Login popups
     contentSecurityPolicy: false, // Disable CSP — Vite-built SPA needs inline scripts/styles
 }));
 
