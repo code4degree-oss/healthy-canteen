@@ -117,8 +117,9 @@ jobs:
             echo "→ Installing frontend dependencies..."
             npm ci
 
-            # Create .env.production for the build to use relative API paths
+            # Create .env.production for the build to use relative API paths and correct Google Client ID
             echo "VITE_API_URL=/api" > .env.production
+            echo "VITE_GOOGLE_CLIENT_ID=475667640474-5ihm207nukv7nhjqs2uqraue0dufo8mb.apps.googleusercontent.com" >> .env.production
 
             echo "→ Building frontend (Vite → dist/)..."
             npm run build

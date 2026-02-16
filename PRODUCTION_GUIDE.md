@@ -280,3 +280,22 @@ pm2 restart healthy-canteen
 - [x] `client_max_body_size` set in Nginx (10MB for image uploads)
 - [x] Image upload validation (MIME type, extension, file size)
 - [x] Passwords hashed with bcrypt
+
+---
+
+## Troubleshooting Google Login
+
+If you see `[GSI_LOGGER]: The given origin is not allowed...` in the browser console:
+
+1.  Go to [Google Cloud Console](https://console.cloud.google.com/apis/credentials).
+2.  Select your project and find the **OAuth 2.0 Client ID**.
+    -   *Hint: The ID used in your backend env is `475667640474-5ihm207nukv7nhjqs2uqraue0dufo8mb.apps.googleusercontent.com`*
+3.  Edit the credentials and add the following:
+    -   **Authorized JavaScript origins**:
+        -   `https://thehealthycanteen.japaneast.cloudapp.azure.com`
+        -   *(Note: No trailing slash!)*
+    -   **Authorized redirect URIs**:
+        -   `https://thehealthycanteen.japaneast.cloudapp.azure.com`
+        -   `https://thehealthycanteen.japaneast.cloudapp.azure.com/auth` (if used)
+4.  **Save**.
+5.  **Wait 5-10 minutes**. Google's changes take time to propagate. Clear your browser cache or test in Incognito.
