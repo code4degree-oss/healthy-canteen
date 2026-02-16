@@ -116,6 +116,10 @@ jobs:
             # ── 4. Frontend: Install & Build ────────────────────────────
             echo "→ Installing frontend dependencies..."
             npm ci
+
+            # Create .env.production for the build to use relative API paths
+            echo "VITE_API_URL=/api" > .env.production
+
             echo "→ Building frontend (Vite → dist/)..."
             npm run build
 
