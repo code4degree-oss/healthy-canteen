@@ -91,7 +91,9 @@ const startServer = async () => {
         if (isDev) {
             await sequelize.sync({ alter: true });
         } else {
-            await sequelize.sync();
+            // For this deployment, we enable alter: true to ensure production DB receives schema updates
+            // (In a strict enterprise env, we would use migrations, but for this VPS setup, this fixes the 500 error)
+            await sequelize.sync({ alter: true });
         }
 
         // Seed default settings (outlet location, radius)
