@@ -5,7 +5,9 @@ import { getDistanceKm } from '../src/utils/haversine';
 import { ProteinType, AddOnSelection, AddOn } from '../types';
 import { QuirkyButton } from './QuirkyButton';
 import { ArrowLeft, Check, Plus, Minus, MapPin, Navigation, Receipt, LayoutList, X, Zap } from 'lucide-react';
-import { orders, menu } from '../src/services/api';
+import { orders, menu, BASE_URL } from '../src/services/api';
+
+
 
 interface OrderFlowPageProps {
     onBack: () => void;
@@ -418,7 +420,7 @@ export const OrderFlowPage: React.FC<OrderFlowPageProps> = ({ onBack }) => {
         </div>
     );
 
-    const BASE_URL = (import.meta as any).env.VITE_API_URL?.replace('/api', '') || 'http://localhost:5000';
+
 
     const getImageUrl = (name: string, imagePath?: string) => {
         if (imagePath) {

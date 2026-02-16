@@ -120,6 +120,9 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onBack }) => {
             if (settingsRes?.data) setServiceArea(settingsRes.data);
             if (statsRes?.data) setDashboardStats(statsRes.data);
 
+            // Ensure customer data is loaded for the dashboard view
+            fetchCustomers();
+
         } catch (error: any) {
             console.error("Failed to fetch admin data", error);
             alert(`Failed to load dashboard data: ${error.response?.data?.message || error.message} \n ${error.response?.data?.error || ''}`);
@@ -136,7 +139,10 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onBack }) => {
             setTotalPages(res.data.totalPages);
         } catch (error: any) {
             console.error("Failed to fetch customers", error);
-            alert(`Failed to load customers: ${error.response?.data?.message || error.message} \n ${error.response?.data?.error || ''}`);
+            // Silent fail for dashboard view to avoid spamming alerts if just one part fails
+            if (activeView === 'customers') {
+                alert(`Failed to load customers: ${error.response?.data?.message || error.message}`);
+            }
         }
     };
 
@@ -191,12 +197,47 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onBack }) => {
     };
 
     const handleMarkReady = async (subId: number) => {
+        // Optimistic Update
+        const now = new Date().toISOString();
+        const todayStr = now.split('T')[0];
+
+        setCustomers(prev => prev.map(c => {
+            if (!c.subscriptions) return c;
+            // Check if this customer has the subscription
+            const hasSub = c.subscriptions.some((s: any) => s.id === subId);
+            if (!hasSub) return c;
+
+            const updatedSubs = c.subscriptions.map((s: any) => {
+                if (s.id === subId) {
+                    // Check if log exists for today
+                    const hasTodayLog = s.deliveryLogs?.some((l: any) => l.deliveryTime.startsWith(todayStr));
+
+                    let newLogs;
+                    if (hasTodayLog) {
+                        newLogs = s.deliveryLogs.map((l: any) => l.deliveryTime.startsWith(todayStr) ? { ...l, status: 'READY' } : l);
+                    } else {
+                        // Mock a legitimate log structure
+                        newLogs = [...(s.deliveryLogs || []), {
+                            id: -1, // Temporary mock ID
+                            status: 'READY',
+                            deliveryTime: now,
+                            userId: null
+                        }];
+                    }
+                    return { ...s, deliveryLogs: newLogs };
+                }
+                return s;
+            });
+            return { ...c, subscriptions: updatedSubs };
+        }));
+
         try {
             await admin.markReady(subId);
-            fetchData();
-            // Optional: Show toast
+            // No need to alert success, let the UI speak
         } catch (e) {
-            alert("Failed to mark ready");
+            console.error(e);
+            alert("Failed to mark ready (reverting...)");
+            fetchCustomers(); // Revert on failure
         }
     };
 

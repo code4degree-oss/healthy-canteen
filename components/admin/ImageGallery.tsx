@@ -8,12 +8,14 @@ interface ImageFile {
     date: string;
 }
 
+import { BASE_URL } from '../../src/services/api';
+
 const ImageGallery: React.FC = () => {
     const [images, setImages] = useState<ImageFile[]>([]);
     const [loading, setLoading] = useState(true);
     const [deleting, setDeleting] = useState<string | null>(null);
 
-    const BASE_URL = (import.meta as any).env.VITE_API_URL?.replace('/api', '') || 'http://localhost:5000';
+    // BASE_URL is now imported
 
     const fetchImages = async () => {
         setLoading(true);

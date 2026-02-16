@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { Trash2, Loader, Image as ImageIcon, X, Check, RefreshCw } from 'lucide-react';
+import { BASE_URL } from '../../src/services/api';
 
 interface ImageFile {
     name: string;
@@ -18,7 +19,7 @@ const ImagePicker: React.FC<ImagePickerProps> = ({ onSelect, onClose }) => {
     const [loading, setLoading] = useState(true);
     const [deleting, setDeleting] = useState<string | null>(null);
 
-    const BASE_URL = (import.meta as any).env.VITE_API_URL?.replace('/api', '') || 'http://localhost:5000';
+
 
     const fetchImages = async () => {
         setLoading(true);
