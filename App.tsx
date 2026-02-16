@@ -16,6 +16,25 @@ import { GoogleOAuthProvider } from '@react-oauth/google';
 import { auth } from './src/services/api';
 import { PoliciesPage } from './components/PoliciesPage';
 
+// Protected Route Component
+const ProtectedRoute: React.FC<{ children: JSX.Element; allowedRoles?: string[] }> = ({ children, allowedRoles }) => {
+  const user = JSON.parse(localStorage.getItem('user') || '{}');
+  const token = localStorage.getItem('token');
+
+  if (!token || !user) {
+    return <Navigate to="/auth" replace />;
+  }
+
+  if (allowedRoles && !allowedRoles.includes(user.role)) {
+    // Redirect to appropriate dashboard based on their ACTUAL role
+    if (user.role === 'admin') return <Navigate to="/admin" replace />;
+    if (user.role === 'delivery') return <Navigate to="/delivery" replace />;
+    return <Navigate to="/client" replace />;
+  }
+
+  return children;
+};
+
 const App: React.FC = () => {
   return (
     <GoogleOAuthProvider clientId={(import.meta as any).env.VITE_GOOGLE_CLIENT_ID}>
@@ -97,14 +116,32 @@ const AppContent: React.FC = () => {
   return (
     <Routes>
       <Route path="/auth" element={<AuthPage onLoginSuccess={handleLoginSuccess} onBack={() => navigate('/')} />} />
-      <Route path="/client" element={<ClientDashboard onBack={() => navigate('/')} />} />
-      <Route path="/order" element={
-        isLoggedIn
-          ? <OrderFlowPage onBack={() => navigate('/')} />
-          : <Navigate to="/auth" replace />
+
+      {/* Protected Routes */}
+      <Route path="/client" element={
+        <ProtectedRoute allowedRoles={['user', 'client']}>
+          <ClientDashboard onBack={() => navigate('/')} />
+        </ProtectedRoute>
       } />
-      <Route path="/admin" element={<AdminDashboard onBack={() => navigate('/')} />} />
-      <Route path="/delivery" element={<DeliveryDashboard onBack={() => navigate('/')} />} />
+
+      <Route path="/order" element={
+        <ProtectedRoute allowedRoles={['user', 'client', 'admin']}>
+          <OrderFlowPage onBack={() => navigate('/')} />
+        </ProtectedRoute>
+      } />
+
+      <Route path="/admin" element={
+        <ProtectedRoute allowedRoles={['admin']}>
+          <AdminDashboard onBack={() => navigate('/')} />
+        </ProtectedRoute>
+      } />
+
+      <Route path="/delivery" element={
+        <ProtectedRoute allowedRoles={['delivery', 'admin']}>
+          <DeliveryDashboard onBack={() => navigate('/')} />
+        </ProtectedRoute>
+      } />
+
       <Route path="/policies" element={<PoliciesPage />} />
       <Route path="/" element={
         <HomePage

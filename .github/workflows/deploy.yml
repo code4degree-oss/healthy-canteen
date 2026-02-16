@@ -129,7 +129,7 @@ jobs:
             # --update-env ensures any new environment variables are picked up.
             echo "→ Restarting backend with PM2..."
             if pm2 describe hct-backend > /dev/null 2>&1; then
-              pm2 restart hct-backend --update-env
+              NODE_ENV=production pm2 restart hct-backend --update-env
             else
               cd backend
               NODE_ENV=production pm2 start dist/server.js --name "hct-backend"
