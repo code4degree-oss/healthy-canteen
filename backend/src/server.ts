@@ -64,9 +64,7 @@ app.use('/api/subscriptions', require('./routes/subscriptionRoutes').default);
 app.use('/api/notifications', require('./routes/notificationRoutes').default);
 
 
-app.get('/', (req: Request, res: Response) => {
-    res.send('The Healthy Canteen Backend is running!');
-});
+
 
 // In production, serve the built frontend
 if (!isDev) {
