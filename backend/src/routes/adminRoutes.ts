@@ -30,6 +30,9 @@ router.use(authenticateToken);
 // FETCHING might need to be open.
 // Let's stick to: Users need Admin. Menu Modification needs Admin.
 
+// STATS
+router.get('/stats', isAdmin, adminController.getAdminStats);
+
 // USERS
 router.get('/users', isAdmin, getAllUsers);
 router.post('/users', isAdmin, createUser);

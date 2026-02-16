@@ -140,12 +140,12 @@ export const updateMenuItem = async (req: Request, res: Response) => {
         const { name, description, proteinAmount, calories, price, color } = req.body;
 
         // Update fields if provided
-        if (name) item.name = name;
-        if (description) item.description = description;
-        if (proteinAmount) item.proteinAmount = proteinAmount;
-        if (calories) item.calories = calories;
-        if (price) item.price = price;
-        if (color) item.color = color;
+        if (name !== undefined) item.name = name;
+        if (description !== undefined) item.description = description;
+        if (proteinAmount !== undefined) item.proteinAmount = proteinAmount;
+        if (calories !== undefined) item.calories = calories;
+        if (price !== undefined) item.price = price;
+        if (color !== undefined) item.color = color;
 
         // Handle multiple file uploads if provided
         const files = req.files as Express.Multer.File[];

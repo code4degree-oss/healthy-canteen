@@ -30,6 +30,12 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onBack }) => {
     const [plans, setPlans] = useState<any[]>([]); // New Plans State
     const [menuItems, setMenuItems] = useState<MenuItem[]>([]);
     const [addOns, setAddOns] = useState<AddOn[]>([]);
+    const [dashboardStats, setDashboardStats] = useState({
+        activeCount: 0,
+        totalRevenue: 0,
+        proteinCounts: {} as Record<string, number>,
+        recentOrders: [] as any[]
+    });
     const [loading, setLoading] = useState(true);
 
     // Responsive Sidebar State
@@ -46,7 +52,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onBack }) => {
     // --- Menu/Addon View State ---
     const [isAddOnModalOpen, setIsAddOnModalOpen] = useState(false);
     const [selectedAddOnId, setSelectedAddOnId] = useState<number | null>(null);
-    const [newAddOn, setNewAddOn] = useState({ name: '', price: 0, description: '', allowSubscription: false, image: null as File | null });
+    const [newAddOn, setNewAddOn] = useState({ name: '', price: 0, description: '', allowSubscription: false, image: null as File | string | null });
 
     // --- Plan/Menu Management State ---
     const [isPlanModalOpen, setIsPlanModalOpen] = useState(false);
@@ -55,15 +61,25 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onBack }) => {
     const [selectedPlanId, setSelectedPlanId] = useState<number | null>(null);
     const [selectedItemId, setSelectedItemId] = useState<number | null>(null);
     const [newMenuItem, setNewMenuItem] = useState({
-        name: '', slug: '', description: '', proteinAmount: 0, calories: 0, price: 0, color: '#000000', images: [] as File[]
+        name: '', slug: '', description: '', proteinAmount: 0, calories: 0, price: 0, color: '#000000', images: [] as (File | string)[]
     });
 
     // --- Settings State ---
     const [serviceArea, setServiceArea] = useState({ outletLat: 18.655, outletLng: 73.845, serviceRadiusKm: 5 });
     const [isLocationLocked, setIsLocationLocked] = useState(true);
+    const [showAllOrders, setShowAllOrders] = useState(false);
 
 
     const [deliveryPartners, setDeliveryPartners] = useState<any[]>([]);
+
+    const renderImagePreview = (fileOrUrl: File | string | null) => {
+        if (!fileOrUrl) return null;
+        if (typeof fileOrUrl === 'string') {
+            const src = fileOrUrl.startsWith('http://') || fileOrUrl.startsWith('https://') ? fileOrUrl : `${BASE_URL}${fileOrUrl}`;
+            return <img src={src} alt="Preview" className="w-16 h-16 object-cover rounded border" />;
+        }
+        return <img src={URL.createObjectURL(fileOrUrl)} alt="Preview" className="w-16 h-16 object-cover rounded border" />;
+    };
 
     // FETCH DATA ON MOUNT & SEARCH/PAGE CHANGE
     useEffect(() => {
@@ -85,11 +101,12 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onBack }) => {
     const fetchData = async () => {
         setLoading(true);
         try {
-            const [menuRes, addonsRes, partnersRes, settingsRes] = await Promise.all([
+            const [menuRes, addonsRes, partnersRes, settingsRes, statsRes] = await Promise.all([
                 admin.getMenu(), // Returns plans with items included
                 admin.getAddOns(),
                 admin.getDeliveryPartners(),
-                settings.getServiceArea()
+                settings.getServiceArea(),
+                admin.getStats()
             ]);
             // usersRes removed from initial load to avoid huge payload
 
@@ -101,6 +118,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onBack }) => {
             setAddOns(addonsRes.data);
             setDeliveryPartners(partnersRes.data);
             if (settingsRes?.data) setServiceArea(settingsRes.data);
+            if (statsRes?.data) setDashboardStats(statsRes.data);
 
         } catch (error) {
             console.error("Failed to fetch admin data", error);
@@ -134,49 +152,9 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onBack }) => {
     };
 
     // --- STATISTICS CALCULATION ---
-    const stats = useMemo(() => {
-        // Basic stats logic adapting to backend data structure differences if any
-        const activeCustomers = customers.filter(c => {
-            const activeSub = c.subscriptions?.some((s: any) => s.status === 'ACTIVE');
-            return !!activeSub;
-        });
+    // NO LONGER CLIENT-SIDE. WE FETCH FROM BACKEND.
+    // However, for immediate update after user actions (like assigning delivery), we might want to refetch stats.
 
-        // Revenue calculation assumes we track it, but backend User model has orderHistory relation. 
-        // If backend returns populated orders, we use them.
-        const totalRevenue = customers.reduce((sum, c) => {
-            const orderSum = c.orders ? c.orders.reduce((oSum: number, order: any) => oSum + parseFloat(order.totalPrice || 0), 0) : 0;
-            return sum + orderSum;
-        }, 0);
-
-        const proteinCounts: Record<string, number> = {};
-        let totalAddons = 0;
-
-        // Iterate over ALL customers and ALL their active subscriptions
-        customers.forEach(c => {
-            const activeSubs = c.subscriptions?.filter((s: any) => s.status === 'ACTIVE') || [];
-            activeSubs.forEach((sub: any) => {
-                const protein = sub.protein?.toUpperCase() || 'UNKNOWN';
-                proteinCounts[protein] = (proteinCounts[protein] || 0) + (sub.mealsPerDay || 0);
-            });
-        });
-
-        const allOrders = customers.flatMap(c => (c.orders || []).map((o: any) => ({
-            ...o,
-            customerName: c.name,
-            date: new Date(o.createdAt).toLocaleDateString(),
-            amount: parseFloat(o.totalPrice),
-            description: `${o.days} Days`
-        })));
-        const recentOrders = allOrders.sort((a: any, b: any) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()).slice(0, 5);
-
-        return {
-            activeCount: activeCustomers.length,
-            totalRevenue,
-            proteinCounts,
-            totalAddons,
-            recentOrders
-        };
-    }, [customers]);
 
 
     // --- HANDLERS ---
@@ -443,73 +421,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onBack }) => {
 
     // --- RENDERERS ---
 
-    const renderDashboardOverview = () => (
-        <div className="space-y-6 animate-in fade-in duration-500">
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-                {/* Stat Cards */}
-                <div className="bg-white p-6 rounded-xl border border-slate-200 shadow-sm">
-                    <div className="flex justify-between items-start mb-4">
-                        <div className="p-2 bg-blue-50 rounded-lg"><Users className="text-blue-600" size={24} /></div>
-                    </div>
-                    <h3 className="text-slate-500 text-sm font-medium">Active Subscribers</h3>
-                    <p className="text-3xl font-bold text-slate-900 mt-1">{stats.activeCount}</p>
-                </div>
 
-                <div className="bg-white p-6 rounded-xl border border-slate-200 shadow-sm">
-                    <div className="flex justify-between items-start mb-4">
-                        <div className="p-2 bg-green-50 rounded-lg"><DollarSign className="text-green-600" size={24} /></div>
-                    </div>
-                    <h3 className="text-slate-500 text-sm font-medium">Total Revenue</h3>
-                    <p className="text-3xl font-bold text-slate-900 mt-1">₹{stats.totalRevenue.toLocaleString()}</p>
-                </div>
-
-                <div className="bg-white p-6 rounded-xl border border-slate-200 shadow-sm">
-                    <div className="flex justify-between items-start mb-4">
-                        <div className="p-2 bg-orange-50 rounded-lg"><Utensils className="text-orange-600" size={24} /></div>
-                    </div>
-                    <h3 className="text-slate-500 text-sm font-medium">Meals to Prep Today</h3>
-                    <p className="text-3xl font-bold text-slate-900 mt-1">
-                        {Object.values(stats.proteinCounts).reduce((a: number, b: number) => a + b, 0)}
-                    </p>
-                </div>
-            </div>
-
-            {/* Recent Orders */}
-            <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
-                <div className="p-6 border-b border-slate-100 flex justify-between items-center">
-                    <h3 className="font-bold text-slate-800 flex items-center gap-2"><Activity size={18} /> Recent Orders</h3>
-                </div>
-                <div className="divide-y divide-slate-100 max-h-[300px] overflow-y-auto">
-                    {stats.recentOrders.map((order: any, idx) => (
-                        <div key={idx} className="p-4 flex justify-between items-center hover:bg-slate-50 transition-colors">
-                            <div className="flex items-center gap-3">
-                                <div className="w-8 h-8 rounded-full bg-slate-100 flex items-center justify-center text-xs font-bold text-slate-500 shrink-0">
-                                    {order.customerName?.charAt(0) || 'U'}
-                                </div>
-                                <div>
-                                    <p className="text-sm font-medium text-slate-900">{order.customerName}</p>
-                                    <p className="text-xs text-slate-500 truncate">{order.description}</p>
-                                </div>
-                            </div>
-                            <div className="text-right shrink-0">
-                                <p className="text-sm font-bold text-slate-900">₹{order.amount.toLocaleString()}</p>
-                                <p className="text-[10px] text-slate-400">{order.date}</p>
-                            </div>
-                        </div>
-                    ))}
-                    {stats.recentOrders.length === 0 && (
-                        <div className="p-12 text-center text-slate-400 flex flex-col items-center">
-                            <div className="w-12 h-12 bg-slate-100 rounded-full flex items-center justify-center mb-3">
-                                <Activity size={24} className="text-slate-300" />
-                            </div>
-                            <p className="text-sm font-medium text-slate-500">No recent activity</p>
-                            <p className="text-xs text-slate-400 mt-1">New orders will appear here automatically.</p>
-                        </div>
-                    )}
-                </div>
-            </div>
-        </div>
-    );
 
     const renderKitchenMenu = () => (
         <div className="space-y-8 animate-in fade-in duration-500">
@@ -520,7 +432,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onBack }) => {
                     <ChefHat className="text-blue-600" /> Today's Prep Sheet
                 </h2>
                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-                    {Object.entries(stats.proteinCounts).map(([protein, count]) => (
+                    {Object.entries(dashboardStats.proteinCounts).map(([protein, count]) => (
                         <div key={protein} className="bg-white border border-slate-200 p-6 rounded-xl flex items-center justify-between shadow-sm hover:shadow-md transition-shadow">
                             <div>
                                 <p className="text-slate-500 font-bold text-xs uppercase tracking-wider">{protein} MEALS</p>
@@ -531,7 +443,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onBack }) => {
                             </div>
                         </div>
                     ))}
-                    {Object.keys(stats.proteinCounts).length === 0 && (
+                    {Object.keys(dashboardStats.proteinCounts).length === 0 && (
                         <div className="col-span-full p-8 text-center bg-slate-50 rounded-xl border border-dashed border-slate-300">
                             <p className="text-slate-500 font-medium">No active meal subscriptions for today.</p>
                         </div>
@@ -553,7 +465,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onBack }) => {
                                 <th className="px-4 py-3">Main Meal</th>
                                 <th className="px-4 py-3">Add-Ons</th>
                                 <th className="px-4 py-3">Status</th>
-                                <th className="px-4 py-3">Status</th>
+                                <th className="px-4 py-3">Notes</th>
                                 <th className="px-4 py-3">Driver / Actions</th>
                             </tr>
                         </thead>
@@ -625,6 +537,22 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onBack }) => {
                                                         </div>
                                                     )}
                                                 </div>
+                                            </td>
+                                            <td className="px-4 py-3">
+                                                {(() => {
+                                                    // Find notes from the order associated with this subscription
+                                                    const order = c.orders?.find((o: any) => o.id === activeSub.orderId);
+                                                    const notes = order?.notes || (activeSub as any).notes;
+                                                    return notes ? (
+                                                        <div className="max-w-[200px]">
+                                                            <p className="text-xs text-amber-700 bg-amber-50 px-2 py-1 rounded border border-amber-200 truncate" title={notes}>
+                                                                📝 {notes}
+                                                            </p>
+                                                        </div>
+                                                    ) : (
+                                                        <span className="text-xs text-slate-300">—</span>
+                                                    );
+                                                })()}
                                             </td>
                                             <td className="px-4 py-3">
                                                 {(() => {
@@ -764,13 +692,16 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onBack }) => {
                         {addOns.map(addon => (
                             <div key={addon.id} className="bg-white p-4 rounded-lg border border-slate-200 shadow-sm flex justify-between items-center group">
                                 <div className="flex items-center gap-3">
-                                    {(addon as any).image ? (
-                                        <img src={`${BASE_URL}${(addon as any).image}`} alt={addon.name} className="w-10 h-10 rounded object-cover border border-slate-100 bg-slate-50" />
-                                    ) : (
-                                        <div className="w-10 h-10 rounded bg-slate-100 border border-slate-200 flex items-center justify-center text-slate-300">
-                                            <Utensils size={14} />
-                                        </div>
-                                    )}
+                                    {(() => {
+                                        const imgSrc = (addon as any).thumbnail || (addon as any).image;
+                                        if (!imgSrc) return (
+                                            <div className="w-10 h-10 rounded bg-slate-100 border border-slate-200 flex items-center justify-center text-slate-300">
+                                                <Utensils size={14} />
+                                            </div>
+                                        );
+                                        const url = (imgSrc.startsWith('http://') || imgSrc.startsWith('https://')) ? imgSrc : `${BASE_URL}${imgSrc}`;
+                                        return <img src={url} alt={addon.name} className="w-10 h-10 rounded object-cover border border-slate-100 bg-slate-50" />;
+                                    })()}
                                     <div>
                                         <p className="font-bold text-sm text-slate-900">{addon.name}</p>
                                         <p className="text-xs text-slate-500">₹{addon.price}</p>
@@ -1028,7 +959,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onBack }) => {
                                         </tr>
                                     </thead>
                                     <tbody className="divide-y divide-slate-100">
-                                        {selectedCustomer.orders?.map((order: any) => (
+                                        {(showAllOrders ? selectedCustomer.orders : selectedCustomer.orders?.slice(0, 10))?.map((order: any) => (
                                             <tr key={order.id}>
                                                 <td className="px-4 py-3">{new Date(order.createdAt).toLocaleDateString()}</td>
                                                 <td className="px-4 py-3">{order.protein} / {order.days} Days</td>
@@ -1038,6 +969,24 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onBack }) => {
                                         ))}
                                         {(!selectedCustomer.orders || selectedCustomer.orders.length === 0) && (
                                             <tr><td colSpan={4} className="p-4 text-center text-slate-400">No previous orders</td></tr>
+                                        )}
+                                        {selectedCustomer.orders?.length > 10 && !showAllOrders && (
+                                            <tr>
+                                                <td colSpan={4} className="p-2 text-center">
+                                                    <button onClick={() => setShowAllOrders(true)} className="text-blue-600 font-bold text-xs hover:underline">
+                                                        View All {selectedCustomer.orders.length} Orders
+                                                    </button>
+                                                </td>
+                                            </tr>
+                                        )}
+                                        {showAllOrders && (
+                                            <tr>
+                                                <td colSpan={4} className="p-2 text-center">
+                                                    <button onClick={() => setShowAllOrders(false)} className="text-slate-500 font-bold text-xs hover:underline">
+                                                        Show Less
+                                                    </button>
+                                                </td>
+                                            </tr>
                                         )}
                                     </tbody>
                                 </table>
@@ -1051,6 +1000,8 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onBack }) => {
     };
 
     return (
+
+
         <div className="min-h-screen bg-slate-50 font-professional text-slate-900 flex overflow-hidden">
 
             {/* SIDEBAR */}
@@ -1096,7 +1047,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onBack }) => {
                 </header>
 
                 <div className="flex-1 overflow-y-auto p-4 md:p-8">
-                    {activeView === 'dashboard' && <AdminOverview stats={stats} />}
+                    {activeView === 'dashboard' && <AdminOverview stats={dashboardStats} />}
                     {activeView === 'customers' && (
                         <AdminCustomerList
                             customers={customers}
@@ -1292,9 +1243,43 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onBack }) => {
                                     <input value={newMenuItem.color} onChange={e => setNewMenuItem({ ...newMenuItem, color: e.target.value })} className="flex-1 p-2 border rounded" />
                                 </div>
                             </div>
+
+                            {/* Image Upload */}
                             <div>
-                                <label className="block text-xs font-bold text-slate-500 mb-1">Upload Image {selectedItemId && '(Leave empty to keep current)'}</label>
-                                <input type="file" accept="image/*" multiple onChange={e => setNewMenuItem({ ...newMenuItem, images: e.target.files ? Array.from(e.target.files) : [] })} className="w-full p-2 border rounded bg-slate-50" />
+                                <label className="block text-xs font-bold text-slate-500 mb-2">Images</label>
+                                <div className="space-y-3 p-4 border border-slate-200 rounded-lg bg-slate-50">
+                                    <div className="relative">
+                                        <input
+                                            type="file"
+                                            accept="image/*"
+                                            multiple
+                                            onChange={e => setNewMenuItem({ ...newMenuItem, images: e.target.files ? [...newMenuItem.images, ...Array.from(e.target.files)] : newMenuItem.images })}
+                                            className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
+                                        />
+                                        <div className="w-full py-2 bg-white border border-slate-300 rounded shadow-sm text-sm font-medium hover:bg-slate-50 flex justify-center items-center gap-2">
+                                            <Plus size={16} /> Upload Images
+                                        </div>
+                                    </div>
+
+                                    {/* Previews */}
+                                    <div className="flex gap-2 flex-wrap">
+                                        {newMenuItem.images && newMenuItem.images.map((img: any, idx: number) => (
+                                            <div key={idx} className="relative group">
+                                                {renderImagePreview(img)}
+                                                <button
+                                                    type="button"
+                                                    onClick={() => setNewMenuItem(prev => ({
+                                                        ...prev,
+                                                        images: prev.images.filter((_, i) => i !== idx)
+                                                    }))}
+                                                    className="absolute -top-1 -right-1 bg-red-500 text-white rounded-full p-0.5 opacity-0 group-hover:opacity-100 transition-opacity"
+                                                >
+                                                    <X size={12} />
+                                                </button>
+                                            </div>
+                                        ))}
+                                    </div>
+                                </div>
                             </div>
 
                             <div className="flex justify-end gap-2 pt-4">
@@ -1318,9 +1303,36 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onBack }) => {
 
                             {/* Image Upload */}
                             <div>
-                                <label className="block text-xs font-bold text-slate-500 mb-1">Image</label>
-                                <input type="file" accept="image/*" onChange={e => setNewAddOn({ ...newAddOn, image: e.target.files?.[0] || null })} className="w-full p-2 border rounded bg-slate-50" />
+                                <label className="block text-xs font-bold text-slate-500 mb-2">Image</label>
+                                <div className="space-y-3 p-4 border border-slate-200 rounded-lg bg-slate-50">
+                                    <div className="relative">
+                                        <input
+                                            type="file"
+                                            accept="image/*"
+                                            onChange={e => setNewAddOn({ ...newAddOn, image: e.target.files?.[0] || null })}
+                                            className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
+                                        />
+                                        <div className="w-full py-2 bg-white border border-slate-300 rounded shadow-sm text-sm font-medium hover:bg-slate-50 flex justify-center items-center gap-2">
+                                            <Plus size={16} /> Upload Image
+                                        </div>
+                                    </div>
+
+                                    {/* Preview */}
+                                    {(newAddOn.image || (selectedAddOnId && (newAddOn as any).image && typeof (newAddOn as any).image === 'string')) && (
+                                        <div className="relative group w-fit">
+                                            {renderImagePreview(newAddOn.image || ((newAddOn as any).image as string))} {/* Fallback for edit mode string */}
+                                            <button
+                                                type="button"
+                                                onClick={() => setNewAddOn({ ...newAddOn, image: null })}
+                                                className="absolute -top-1 -right-1 bg-red-500 text-white rounded-full p-0.5 opacity-0 group-hover:opacity-100 transition-opacity"
+                                            >
+                                                <X size={12} />
+                                            </button>
+                                        </div>
+                                    )}
+                                </div>
                             </div>
+
 
                             {/* Allow Subscription Checkbox */}
                             <div className="flex items-center gap-2">

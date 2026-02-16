@@ -1,0 +1,6 @@
+<svg width="400" height="400" xmlns="http://www.w3.org/2000/svg">
+  <rect width="100%" height="100%" fill="#f0f9ff"/>
+  <circle cx="200" cy="200" r="150" fill="#e0f2fe"/>
+  <text x="50%" y="50%" dominant-baseline="middle" text-anchor="middle" font-family="Arial, sans-serif" font-size="40" fill="#0284c7" font-weight="bold">KEFIR</text>
+  <text x="50%" y="65%" dominant-baseline="middle" text-anchor="middle" font-family="Arial, sans-serif" font-size="20" fill="#0ea5e9">Probiotic Drink</text>
+</svg>

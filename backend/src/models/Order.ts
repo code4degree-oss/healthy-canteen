@@ -15,6 +15,7 @@ class Order extends Model {
     public deliveryLng!: number;
     public deliveryAddress!: string;
     public addons!: any;
+    public notes!: string;
     public readonly createdAt!: Date;
     public readonly updatedAt!: Date;
 }
@@ -74,6 +75,10 @@ Order.init(
             type: DataTypes.JSON, // Stores array of selected addons
             allowNull: true
         },
+        notes: {
+            type: DataTypes.STRING,
+            allowNull: true
+        },
     },
     {
         sequelize,
@@ -92,6 +97,6 @@ Order.init(
 
 // Define Association
 User.hasMany(Order, { foreignKey: 'userId', as: 'orders' });
-Order.belongsTo(User, { foreignKey: 'userId' });
+Order.belongsTo(User, { foreignKey: 'userId', as: 'user' });
 
 export default Order;

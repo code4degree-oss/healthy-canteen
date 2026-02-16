@@ -217,14 +217,14 @@ export const OrderFlowModal: React.FC<OrderFlowModalProps> = ({ isOpen, onClose 
                                                     {/* Quantity Controls */}
                                                     <div className="flex items-center gap-2">
                                                         <button
-                                                            onClick={() => updateAddon(addon.id, Math.max(0, selection.quantity - 1), selection.frequency)}
+                                                            onClick={() => updateAddon(String(addon.id), Math.max(0, selection.quantity - 1), selection.frequency)}
                                                             className="w-8 h-8 flex items-center justify-center bg-gray-200 rounded-lg border-2 border-black hover:bg-red-200"
                                                         >
                                                             <Minus size={14} />
                                                         </button>
                                                         <span className="font-heading w-6 text-center">{selection.quantity}</span>
                                                         <button
-                                                            onClick={() => updateAddon(addon.id, selection.quantity + 1, selection.frequency)}
+                                                            onClick={() => updateAddon(String(addon.id), selection.quantity + 1, selection.frequency)}
                                                             className="w-8 h-8 flex items-center justify-center bg-quirky-green rounded-lg border-2 border-black hover:bg-green-400"
                                                         >
                                                             <Plus size={14} />
@@ -235,13 +235,13 @@ export const OrderFlowModal: React.FC<OrderFlowModalProps> = ({ isOpen, onClose 
                                                     {addon.allowSubscription ? (
                                                         <div className="flex gap-1 bg-gray-100 p-1 rounded-lg border-2 border-gray-300">
                                                             <button
-                                                                onClick={() => updateAddon(addon.id, selection.quantity || 1, 'once')}
+                                                                onClick={() => updateAddon(String(addon.id), selection.quantity || 1, 'once')}
                                                                 className={`px-3 py-1 rounded text-[10px] font-heading transition-all ${selection.frequency === 'once' ? 'bg-white border-2 border-black shadow-sm' : 'text-gray-400 hover:text-black'}`}
                                                             >
                                                                 ONCE
                                                             </button>
                                                             <button
-                                                                onClick={() => updateAddon(addon.id, selection.quantity || 1, 'daily')}
+                                                                onClick={() => updateAddon(String(addon.id), selection.quantity || 1, 'daily')}
                                                                 className={`px-3 py-1 rounded text-[10px] font-heading transition-all ${selection.frequency === 'daily' ? 'bg-quirky-purple text-white border-2 border-black shadow-sm' : 'text-gray-400 hover:text-black'}`}
                                                             >
                                                                 WITH PLAN

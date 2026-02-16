@@ -7,17 +7,9 @@ import Settings from '../models/Settings';
 import { getDistanceKm } from '../utils/haversine';
 
 // Simple rate map (should ideally be shared or fetched from DB)
-const RATES: any = {
-    'CHICKEN': 320,
-    'PANEER': 300
-};
-
-// Assuming SUBSCRIPTION_RATES is defined elsewhere or needs to be defined here
-// For now, defining it as a placeholder based on the context of the change
-const SUBSCRIPTION_RATES: any = {
-    'CHICKEN': 280,
-    'PANEER': 255
-};
+// Rates are now fully dynamic from Database
+// const RATES... removed
+// const SUBSCRIPTION_RATES... removed
 
 import sequelize from '../config/database';
 
@@ -27,7 +19,7 @@ export const createOrder = async (req: Request, res: Response) => {
     const t = await sequelize.transaction();
     try {
         const userId = (req as any).user.id; // JWT stores 'id' not 'userId'
-        const { protein, days, mealsPerDay, startDate, deliveryLat, deliveryLng, deliveryAddress, addons } = req.body;
+        const { protein, days, mealsPerDay, startDate, deliveryLat, deliveryLng, deliveryAddress, addons, notes } = req.body;
 
         // --- VALIDATION ---
         if (!protein || !days || !mealsPerDay || !startDate) {
@@ -67,44 +59,17 @@ export const createOrder = async (req: Request, res: Response) => {
         // Fetch the menu item to get the correct price
         // We search by name (as sent by frontend) or slug if you prefer.
         // Frontend sends 'name' in protein field now.
-        // Ideally we should use ID or Slug, but Name works if unique.
-        // Let's try name first, fallback to hardcoded if not found (for legacy support).
         const menuItem = await MenuItem.findOne({ where: { name: protein } });
 
-        // Default base rate if not found (fallback to existing logic or 320)
-        let baseRate = 320;
+        // Default base rate if not found 
+        let baseRate = 0;
 
         if (menuItem) {
             baseRate = menuItem.price;
-
-            // Apply bulk discount logic if needed
-            // Currently constants.ts had BASE_RATES and SUBSCRIPTION_RATES (24+ days)
-            // If we want to keep that logic dynamic, we might need a 'subscriptionPrice' in DB.
-            // For now, let's assume the DB price IS the base price.
-            // And maybe apply a standard discount for max duration?
-            // "If days >= 24, use subscription rate".
-            // Since we don't have subscriptionPrice in DB yet, we can use a fixed percentage or just use the price.
-            // Let's just use the price from DB as is for now to respect the admin setting.
-            // If the admin sets 280 for a "Monthly Plan Item" and 320 for "Daily", that's how it works.
-            // BUT wait, the item is "Chicken".
-            // If dynamic plans are "Meal Plan" -> "Chicken".
-            // We might need to handle the bulk discount in code:
-            if (days >= 24) {
-                // Maybe 10-12% off?
-                // Or just use the price.
-                // The frontend calculates total based on price * days.
-                // The backend should match.
-                // If frontend logic uses (days >= 24 ? rate (which was sub rate) : rate),
-                // then backend should too.
-                // In frontend refactor (Step 251), I set rate = selectedItem.price.
-                // And didn't apply discount logic explicitly except using that rate.
-                // So backend should also use that rate.
-            }
         } else {
-            // Fallback for legacy 'CHICKEN', 'PANEER' if they don't exist in DB
-            baseRate = RATES[protein] || 320;
-            // Logic for subscription override in legacy
-            if (days >= 24 && SUBSCRIPTION_RATES[protein]) baseRate = SUBSCRIPTION_RATES[protein];
+            // If item not found, this is a critical error as we don't have hardcoded fallbacks anymore
+            await t.rollback();
+            return res.status(400).json({ message: `Menu item '${protein}' not found or price not set.` });
         }
 
         // Prevent Duplicate Orders (Simple Check: if same user ordered same protein for same duration within last 10 seconds)
@@ -115,14 +80,17 @@ export const createOrder = async (req: Request, res: Response) => {
                 protein,
                 days,
                 createdAt: {
-                    [Symbol.for('gte') as any]: tenSecondsAgo // using symbol for operator might be tricky without importing Op, let's use standard sequelize if possible or just rely on transaction speed
+                    [Op.gte]: tenSecondsAgo
                 }
             },
             transaction: t
         });
 
-        // Actually, simpler dedup: check if an active subscription already exists for this period? 
-        // For now, let's just stick to the transaction safety to ensure atomic writes.
+        // Prevent duplicate submission
+        if (duplicate) {
+            await t.rollback();
+            return res.status(409).json({ message: 'Duplicate order detected. Please wait before resubmitting.' });
+        }
 
         // Calculate price server-side for security
         const totalPrice = baseRate * days * mealsPerDay;
@@ -138,7 +106,8 @@ export const createOrder = async (req: Request, res: Response) => {
             deliveryLng,
             deliveryAddress,
             status: 'PAID', // Auto-completing for now as we don't have a real payment gateway
-            addons
+            addons,
+            notes
         }, { transaction: t });
 
         // Create subscription if paid

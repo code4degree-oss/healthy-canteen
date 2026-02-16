@@ -58,15 +58,23 @@ export const ImageCarousel: React.FC<ImageCarouselProps> = ({ images, alt }) => 
             onMouseLeave={() => setIsHovering(false)}
         >
             {/* Images */}
-            {images.map((img, index) => (
-                <img
-                    key={index}
-                    src={`${BASE_URL}${img}`}
-                    alt={`${alt} - ${index + 1}`}
-                    className={`absolute inset-0 w-full h-full object-cover transition-opacity duration-700 ${index === currentIndex ? 'opacity-100' : 'opacity-0'
-                        }`}
-                />
-            ))}
+            {/* Images - Optimization: Only render current and next image to reduce DOM load */}
+            {images.map((img, index) => {
+                // Only render if it's the current image or the next one (for preloading)
+                // We keep a small buffer. Actually, for simple fade, we might want to keep the previous one too?
+                // Let's just render all but control decoding? No, DOM nodes are the issue.
+                // Let's try rendering only the current one.
+                if (index !== currentIndex) return null;
+
+                return (
+                    <img
+                        key={index}
+                        src={`${BASE_URL}${img}`}
+                        alt={`${alt} - ${index + 1}`}
+                        className={`absolute inset-0 w-full h-full object-cover animate-in fade-in duration-700`}
+                    />
+                );
+            })}
 
             {/* Dots Indicator */}
             {images.length > 1 && (

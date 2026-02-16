@@ -27,7 +27,7 @@ export const register = async (req: Request, res: Response) => {
             address
         });
 
-        const token = jwt.sign({ id: user.id, role: user.role }, SECRET_KEY, { expiresIn: '1h' });
+        const token = jwt.sign({ id: user.id, role: user.role }, SECRET_KEY, { expiresIn: '7d' });
 
         res.status(201).json({ token, user: { id: user.id, name: user.name, email: user.email, role: user.role } });
     } catch (error) {
@@ -51,7 +51,7 @@ export const login = async (req: Request, res: Response) => {
             return res.status(400).json({ message: 'Invalid credentials' });
         }
 
-        const token = jwt.sign({ id: user.id, role: user.role }, SECRET_KEY, { expiresIn: '1h' });
+        const token = jwt.sign({ id: user.id, role: user.role }, SECRET_KEY, { expiresIn: '7d' });
 
         res.status(200).json({ token, user: { id: user.id, name: user.name, email: user.email, role: user.role } });
     } catch (error) {
@@ -92,7 +92,7 @@ export const googleLogin = async (req: Request, res: Response) => {
         }
 
         // Generate JWT
-        const jwtToken = jwt.sign({ id: user.id, role: user.role }, SECRET_KEY, { expiresIn: '1h' });
+        const jwtToken = jwt.sign({ id: user.id, role: user.role }, SECRET_KEY, { expiresIn: '7d' });
 
         res.status(200).json({ token: jwtToken, user: { id: user.id, name: user.name, email: user.email, role: user.role } });
     } catch (error) {

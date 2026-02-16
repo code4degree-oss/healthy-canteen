@@ -39,6 +39,7 @@ export const orders = {
 
 export const admin = {
     getUsers: (page = 1, limit = 10, search = '') => api.get(`/admin/users?page=${page}&limit=${limit}&search=${encodeURIComponent(search)}`),
+    getStats: () => api.get('/admin/stats'),
     createUser: (data: any) => api.post('/admin/users', data),
     deleteUser: (id: string) => api.delete(`/admin/users/${id}`),
 
@@ -81,6 +82,8 @@ export const admin = {
 export const delivery = {
     getQueue: () => api.get('/delivery/queue'),
     confirm: (data: any) => api.post('/delivery/confirm', data),
+    noReceive: (data: { subscriptionId: number }) => api.post('/delivery/no-receive', data),
+    getHistory: (date?: string) => api.get('/delivery/history', { params: { date } }),
 };
 
 export const subscriptions = {

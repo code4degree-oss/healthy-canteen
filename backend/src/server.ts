@@ -1,6 +1,9 @@
 import express, { Express, Request, Response } from 'express';
 import cors from 'cors';
 import dotenv from 'dotenv';
+import helmet from 'helmet';
+import compression from 'compression';
+import rateLimit from 'express-rate-limit';
 import sequelize from './config/database';
 import authRoutes from './routes/authRoutes';
 import orderRoutes from './routes/orderRoutes';
@@ -27,6 +30,30 @@ app.use(cors({
 }));
 app.use(express.json());
 
+// --- SECURITY MIDDLEWARE (must be before routes) ---
+
+// 1. Helmet: Secure HTTP Headers
+app.use(helmet({
+    crossOriginResourcePolicy: { policy: "cross-origin" }, // Allow images to be loaded by frontend
+}));
+
+// 2. Compression: Gzip responses
+app.use(compression());
+
+// 3. Rate Limiting: Prevent Abuse
+const limiter = rateLimit({
+    windowMs: 15 * 60 * 1000, // 15 minutes
+    max: 500, // Limit each IP to 500 requests per windowMs
+    standardHeaders: true,
+    legacyHeaders: false,
+    message: 'Too many requests from this IP, please try again after 15 minutes'
+});
+app.use('/api', limiter);
+
+// Serve static files
+app.use('/uploads', express.static(path.join(__dirname, '../uploads')));
+
+// --- ROUTES ---
 app.use('/api/auth', authRoutes);
 app.use('/api/orders', orderRoutes);
 app.use('/api/admin', adminRoutes);
@@ -36,12 +63,18 @@ app.use('/api/settings', settingsRoutes);
 app.use('/api/subscriptions', require('./routes/subscriptionRoutes').default);
 app.use('/api/notifications', require('./routes/notificationRoutes').default);
 
-// Serve static files 
-app.use('/uploads', express.static(path.join(__dirname, '../uploads'))); // Serve uploads directory
 
 app.get('/', (req: Request, res: Response) => {
     res.send('The Healthy Canteen Backend is running!');
 });
+
+// In production, serve the built frontend
+if (!isDev) {
+    app.use(express.static(path.join(__dirname, '../../dist')));
+    app.get('*', (req: Request, res: Response) => {
+        res.sendFile(path.join(__dirname, '../../dist/index.html'));
+    });
+}
 
 const startServer = async () => {
     try {

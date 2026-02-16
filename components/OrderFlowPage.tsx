@@ -4,7 +4,7 @@ import { settings } from '../src/services/api';
 import { getDistanceKm } from '../src/utils/haversine';
 import { ProteinType, AddOnSelection, AddOn } from '../types';
 import { QuirkyButton } from './QuirkyButton';
-import { ArrowLeft, Check, Plus, Minus, MapPin, Navigation, Receipt, LayoutList, X } from 'lucide-react';
+import { ArrowLeft, Check, Plus, Minus, MapPin, Navigation, Receipt, LayoutList, X, Zap } from 'lucide-react';
 import { orders, menu } from '../src/services/api';
 
 interface OrderFlowPageProps {
@@ -18,7 +18,6 @@ declare global {
     }
 }
 
-// Dynamic Map Loader
 // Dynamic Map Loader
 const loadGoogleMaps = (apiKey: string) => {
     return new Promise((resolve, reject) => {
@@ -47,8 +46,6 @@ export const OrderFlowPage: React.FC<OrderFlowPageProps> = ({ onBack }) => {
     const [currentStep, setCurrentStep] = useState<1 | 2 | 3>(1);
 
     // --- Step 1: Selection State ---
-    // --- Step 1: Selection State ---
-    // --- Step 1: Selection State ---
     const [days, setDays] = useState<number>(24);
     const [mealsPerDay, setMealsPerDay] = useState<number>(1);
 
@@ -60,6 +57,7 @@ export const OrderFlowPage: React.FC<OrderFlowPageProps> = ({ onBack }) => {
 
     const [addons, setAddons] = useState<Record<string, AddOnSelection>>({});
     const [startDate, setStartDate] = useState<string>(new Date().toISOString().split('T')[0]);
+    const [notes, setNotes] = useState('');
 
     const [availableAddons, setAvailableAddons] = useState<AddOn[]>([]);
     const [kefirAddon, setKefirAddon] = useState<AddOn | null>(null);
@@ -95,43 +93,18 @@ export const OrderFlowPage: React.FC<OrderFlowPageProps> = ({ onBack }) => {
         }
     }, []);
 
-    // Fetch Menu
-
-
     // --- Calculations ---
     const [basePlanTotal, setBasePlanTotal] = useState<number>(0);
 
     useEffect(() => {
         if (!selectedItem) return;
-        let rate = selectedItem.price; // Base rate from DB
-
-        // Apply bulk discount logic similar to constants but using DB price as base
-        // Logic: 24+ days = base rate (subscription rate), < 24 days = maybe higher?
-        // The current constants had BASE_RATES (single) and SUBSCRIPTION_RATES (bulk).
-        // The DB has 'price'. Let's assume DB price is the SINGLE meal price.
-        // And we apply a discount for 24+ days? 
-        // Or assume DB price is the "Subscription Rate" if that's what's shown? 
-        // User didn't specify. Let's assume DB price is the standard rate.
-        // Step 167 constants: Chicken Base 320, Sub 280. 
-        // Let's assume DB Price is the "Base Rate" (320).
-
-        // If days >= 24, apply ~12% discount? Or just use the price as is?
-        // Simplest: Use price as is for now, or apply logic. 
-        // Let's stick to: Price in DB is the value used for calculation.
-        // If we want discounts, we ideally need fields types in DB like 'subscriptionPrice'.
-        // For now, I'll just use price * days * meals.
-
-        // Update: The prompt says "moving menu data... to a database".
-        // Use the price from the DB item.
         setBasePlanTotal(selectedItem.price * days * mealsPerDay);
-
     }, [days, mealsPerDay, selectedItem]);
 
     const calculateAddonTotal = () => {
         let total = 0;
         Object.keys(addons).forEach(key => {
             const selection = addons[key];
-            // key is string, addon.id is number. Matches stringified ID.
             const addonDef = availableAddons.find(a => a.id.toString() === key);
             if (addonDef && selection.quantity > 0) {
                 const price = addonDef.price;
@@ -158,13 +131,11 @@ export const OrderFlowPage: React.FC<OrderFlowPageProps> = ({ onBack }) => {
 
     const handleAddonClick = (addon: AddOn) => {
         const currentQty = addons[addon.id]?.quantity || 0;
-        // If adding from 0 and it allows subscription, show modal to ask "Once" or "Daily"
         if (currentQty === 0 && addon.allowSubscription) {
             setActiveAddonModal(addon);
         } else {
-            // If already added or no subscription option, just increment default
             const currentFreq = addons[addon.id]?.frequency || 'once';
-            updateAddon(addon.id, 1, currentFreq);
+            updateAddon(addon.id.toString(), 1, currentFreq);
         }
     };
 
@@ -180,7 +151,6 @@ export const OrderFlowPage: React.FC<OrderFlowPageProps> = ({ onBack }) => {
         settings.getServiceArea().then(res => {
             setServiceArea(res.data);
         }).catch(() => {
-            // Fallback defaults
             setServiceArea({ outletLat: 18.654949627383616, outletLng: 73.84475261136429, serviceRadiusKm: 5 });
         });
     }, []);
@@ -217,10 +187,8 @@ export const OrderFlowPage: React.FC<OrderFlowPageProps> = ({ onBack }) => {
                 }
 
                 try {
-                    // Default to Pune/India or generic location if geolocation fails
                     const defaultPos = { lat: 18.6298, lng: 73.7997 };
 
-                    // Initialize Map ONLY if it doesn't exist
                     if (!googleMapInstance.current) {
                         googleMapInstance.current = new window.google.maps.Map(mapRef.current, {
                             center: defaultPos,
@@ -229,8 +197,6 @@ export const OrderFlowPage: React.FC<OrderFlowPageProps> = ({ onBack }) => {
                             zoomControl: true,
                         });
 
-                        // Add Click Listener once
-                        // Remove any existing listeners if re-initializing (though we check instance existence)
                         window.google.maps.event.clearListeners(googleMapInstance.current, 'click');
                         googleMapInstance.current.addListener("click", (e: any) => {
                             if (markerInstance.current) {
@@ -242,7 +208,6 @@ export const OrderFlowPage: React.FC<OrderFlowPageProps> = ({ onBack }) => {
                         });
                     }
 
-                    // Initialize Marker ONLY if it doesn't exist
                     if (!markerInstance.current) {
                         markerInstance.current = new window.google.maps.Marker({
                             position: defaultPos,
@@ -252,7 +217,6 @@ export const OrderFlowPage: React.FC<OrderFlowPageProps> = ({ onBack }) => {
                             title: "Your Healthy Food Spot"
                         });
 
-                        // Add Drag Listener once
                         markerInstance.current.addListener("dragend", () => {
                             const pos = markerInstance.current.getPosition();
                             const loc = { lat: pos.lat(), lng: pos.lng() };
@@ -260,12 +224,10 @@ export const OrderFlowPage: React.FC<OrderFlowPageProps> = ({ onBack }) => {
                             checkZone(loc);
                         });
 
-                        // Initial location check (if we have a saved location, use it)
                         if (location) {
                             markerInstance.current.setPosition(location);
                             googleMapInstance.current.setCenter(location);
                         } else {
-                            // Try to get actual location if no location set
                             if (navigator.geolocation) {
                                 navigator.geolocation.getCurrentPosition(
                                     (position) => {
@@ -291,9 +253,7 @@ export const OrderFlowPage: React.FC<OrderFlowPageProps> = ({ onBack }) => {
                         }
                     }
 
-                    // Update Circle (Re-create or update path? Easiest to replace for now or update radius/center)
                     if (serviceArea) {
-                        // Remove old circle if exists
                         if (circleInstance.current) {
                             circleInstance.current.setMap(null);
                         }
@@ -301,7 +261,7 @@ export const OrderFlowPage: React.FC<OrderFlowPageProps> = ({ onBack }) => {
                         circleInstance.current = new window.google.maps.Circle({
                             map: googleMapInstance.current,
                             center: { lat: serviceArea.outletLat, lng: serviceArea.outletLng },
-                            radius: serviceArea.serviceRadiusKm * 1000, // km to meters
+                            radius: serviceArea.serviceRadiusKm * 1000,
                             fillColor: '#a3e635',
                             fillOpacity: 0.1,
                             strokeColor: '#3f6212',
@@ -309,14 +269,6 @@ export const OrderFlowPage: React.FC<OrderFlowPageProps> = ({ onBack }) => {
                             strokeOpacity: 0.6,
                         });
 
-                        // Outlet Marker (Optional, maybe keep it simple or manage instance similarly)
-                        // For simplicity, let's just add it if not added, or replace. 
-                        // To avoid tracking too many refs, let's just re-add it (small overhead compared to map)
-                        // Or better, add a ref for outletMarker to avoid flicker/duplication.
-                        // For now, I'll skip outlet marker optimization to keep code simple, or add a simple check?
-                        // Actually, re-creating markers on every render is bad. 
-                        // Let's assume the outlet doesn't move often.
-                        // I'll skip the outlet marker logic or minimalize it.
                         new window.google.maps.Marker({
                             position: { lat: serviceArea.outletLat, lng: serviceArea.outletLng },
                             map: googleMapInstance.current,
@@ -340,9 +292,7 @@ export const OrderFlowPage: React.FC<OrderFlowPageProps> = ({ onBack }) => {
                 alert("Google Maps script failed to load. Likely network or API Key issue.");
             });
         }
-    }, [currentStep, serviceArea]); // Re-run if serviceArea loads late
-
-    // --- Dynamic Addons ---
+    }, [currentStep, serviceArea]);
 
     // Fetch Menu & Addons
     useEffect(() => {
@@ -359,7 +309,6 @@ export const OrderFlowPage: React.FC<OrderFlowPageProps> = ({ onBack }) => {
                 setPlans(fetchedPlans);
                 setAvailableAddons(fetchedAddons);
 
-                // Find Kefir for Upsell (Case-insensitive match)
                 const foundKefir = fetchedAddons.find((a: AddOn) =>
                     a.name.toLowerCase().includes('kefir')
                 );
@@ -380,7 +329,6 @@ export const OrderFlowPage: React.FC<OrderFlowPageProps> = ({ onBack }) => {
 
     const [loading, setLoading] = useState(false);
 
-
     // --- Upsell State ---
     const [showKefirUpsell, setShowKefirUpsell] = useState(false);
 
@@ -395,7 +343,8 @@ export const OrderFlowPage: React.FC<OrderFlowPageProps> = ({ onBack }) => {
                 deliveryLat: location?.lat,
                 deliveryLng: location?.lng,
                 deliveryAddress: form.flatDetails,
-                addons: addons // key -> { quantity, frequency }
+                addons: addons,
+                notes: notes
             };
 
             await orders.create(orderData);
@@ -411,16 +360,7 @@ export const OrderFlowPage: React.FC<OrderFlowPageProps> = ({ onBack }) => {
 
     const nextStep = () => {
         if (currentStep === 1) {
-            // Upsell Check: If Kefir found & not chosen
-            // We use the ID from the DB if found, otherwise fallback to 'kefir' string if using constants (but we prefer DB now)
-            // But 'addons' state is keyed by ID. The constant used 'kefir' (string). The DB uses `id: number`.
-            // We need to support both or switch. The `ADD_ONS` constant uses string IDs.
-            // If we switch to dynamic, we should key by `addon.id` (number).
-            // But existing `addons` state might rely on strings? Type def says `Record<string, ...>`. Keys are strings.
-
             const targetKefirId = kefirAddon ? kefirAddon.id.toString() : 'kefir';
-
-            // Check if user already added it
             if (kefirAddon && (!addons[targetKefirId] || addons[targetKefirId].quantity === 0)) {
                 setShowKefirUpsell(true);
             } else {
@@ -457,16 +397,23 @@ export const OrderFlowPage: React.FC<OrderFlowPageProps> = ({ onBack }) => {
         else setCurrentStep(prev => (prev - 1) as 1 | 2);
     };
 
-    // --- Render Steps ---
-
     const renderProgressBar = () => (
-        <div className="flex justify-center mb-6 md:mb-8 px-4">
-            <div className="flex items-center gap-2 md:gap-4">
-                <div className={`w-8 h-8 md:w-10 md:h-10 rounded-full flex items-center justify-center font-heading border-3 border-black transition-all text-sm md:text-base ${currentStep >= 1 ? 'bg-quirky-yellow text-black' : 'bg-gray-200 text-gray-400'}`}>1</div>
-                <div className={`h-1 w-6 md:w-16 border-t-4 border-black border-dashed ${currentStep >= 2 ? 'border-black' : 'border-gray-300'}`}></div>
-                <div className={`w-8 h-8 md:w-10 md:h-10 rounded-full flex items-center justify-center font-heading border-3 border-black transition-all text-sm md:text-base ${currentStep >= 2 ? 'bg-quirky-pink text-white' : 'bg-gray-200 text-gray-400'}`}>2</div>
-                <div className={`h-1 w-6 md:w-16 border-t-4 border-black border-dashed ${currentStep >= 3 ? 'border-black' : 'border-gray-300'}`}></div>
-                <div className={`w-8 h-8 md:w-10 md:h-10 rounded-full flex items-center justify-center font-heading border-3 border-black transition-all text-sm md:text-base ${currentStep >= 3 ? 'bg-quirky-green text-black' : 'bg-gray-200 text-gray-400'}`}>3</div>
+        <div className="flex justify-center mb-8 md:mb-10 px-4">
+            <div className="bg-white/80 backdrop-blur-sm p-4 rounded-full border-2 border-black/10 shadow-sm flex items-center gap-4 md:gap-6">
+                {/* Step 1 */}
+                <div className={`w-10 h-10 md:w-12 md:h-12 rounded-full flex items-center justify-center font-heading border-3 border-black transition-all text-base md:text-lg ${currentStep >= 1 ? 'bg-quirky-yellow text-black shadow-hard' : 'bg-gray-100 text-gray-400'}`}>1</div>
+
+                {/* Connector 1-2 */}
+                <div className={`h-1 w-8 md:w-24 border-b-[6px] border-dotted ${currentStep >= 2 ? 'border-black' : 'border-gray-300'}`}></div>
+
+                {/* Step 2 */}
+                <div className={`w-10 h-10 md:w-12 md:h-12 rounded-full flex items-center justify-center font-heading border-3 border-black transition-all text-base md:text-lg ${currentStep >= 2 ? 'bg-quirky-pink text-white shadow-hard' : 'bg-gray-100 text-gray-400'}`}>2</div>
+
+                {/* Connector 2-3 */}
+                <div className={`h-1 w-8 md:w-24 border-b-[6px] border-dotted ${currentStep >= 3 ? 'border-black' : 'border-gray-300'}`}></div>
+
+                {/* Step 3 */}
+                <div className={`w-10 h-10 md:w-12 md:h-12 rounded-full flex items-center justify-center font-heading border-3 border-black transition-all text-base md:text-lg ${currentStep >= 3 ? 'bg-quirky-green text-black shadow-hard' : 'bg-gray-100 text-gray-400'}`}>3</div>
             </div>
         </div>
     );
@@ -474,19 +421,26 @@ export const OrderFlowPage: React.FC<OrderFlowPageProps> = ({ onBack }) => {
     const BASE_URL = (import.meta as any).env.VITE_API_URL?.replace('/api', '') || 'http://localhost:5000';
 
     const getImageUrl = (name: string, imagePath?: string) => {
-        if (imagePath) return `${BASE_URL}${imagePath}`;
+        if (imagePath) {
+            // If it's already a full URL (http/https), use directly
+            if (imagePath.startsWith('http://') || imagePath.startsWith('https://')) return imagePath;
+            // If it's a relative path (e.g. /uploads/...), prepend BASE_URL
+            return `${BASE_URL}${imagePath}`;
+        }
         const lower = name.toLowerCase();
         if (lower.includes('chicken')) return "https://images.unsplash.com/photo-1604908176997-125f25cc6f3d?q=80&w=800&auto=format&fit=crop";
         if (lower.includes('paneer')) return "https://images.unsplash.com/photo-1565557623262-b51c2513a641?q=80&w=800&auto=format&fit=crop";
         if (lower.includes('vegan') || lower.includes('veg') || lower.includes('salad')) return "https://images.unsplash.com/photo-1512621776951-a57141f2eefd?q=80&w=800&auto=format&fit=crop";
         if (lower.includes('fish')) return "https://images.unsplash.com/photo-1519708227418-c8fd9a3a1b78?q=80&w=800&auto=format&fit=crop";
         if (lower.includes('egg')) return "https://images.unsplash.com/photo-1482049016688-2d3e1b311543?q=80&w=800&auto=format&fit=crop";
-        // Default
         return "https://images.unsplash.com/photo-1546069901-ba9599a7e63c?q=80&w=800&auto=format&fit=crop";
     };
 
     const getAddonImageUrl = (name: string, imagePath?: string) => {
-        if (imagePath) return `${BASE_URL}${imagePath}`;
+        if (imagePath) {
+            if (imagePath.startsWith('http://') || imagePath.startsWith('https://')) return imagePath;
+            return `${BASE_URL}${imagePath}`;
+        }
         const lower = name.toLowerCase();
         if (lower.includes('kefir')) return "https://images.unsplash.com/photo-1563227812-0ea4c22e6cc8?q=80&w=800&auto=format&fit=crop";
         if (lower.includes('cookie')) return "https://images.unsplash.com/photo-1499636138143-bd649043ea52?q=80&w=800&auto=format&fit=crop";
@@ -495,7 +449,14 @@ export const OrderFlowPage: React.FC<OrderFlowPageProps> = ({ onBack }) => {
     };
 
     return (
-        <div className="min-h-screen bg-quirky-cream pt-20 pb-44 md:pb-32 px-4 md:px-8 relative">
+        <div className="min-h-screen pt-20 pb-44 md:pb-32 px-4 md:px-8 relative">
+            {/* Global Background Gradient */}
+            <div className="fixed inset-0 pointer-events-none z-0 bg-gradient-to-b from-[#f0fff4] to-white"></div>
+
+            {/* Global Background Pattern - Diagonal Motion Lines (Fitness Vibe) */}
+            <div className="fixed inset-0 pointer-events-none z-0 opacity-[0.04]"
+                style={{ backgroundImage: 'repeating-linear-gradient(45deg, #000 0, #000 2px, transparent 0, transparent 40px)' }}>
+            </div>
 
             {/* Nav */}
             <nav className="fixed top-4 left-4 z-50">
@@ -512,9 +473,8 @@ export const OrderFlowPage: React.FC<OrderFlowPageProps> = ({ onBack }) => {
                     <div className="bg-white border-4 border-black rounded-3xl shadow-hard max-w-sm w-full relative overflow-hidden animate-in zoom-in-95 duration-200">
                         {/* Header Image Area */}
                         <div className="h-64 bg-quirky-blue relative border-b-4 border-black p-4">
-                            {/* Use dynamic image from DB or fallback */}
                             <img
-                                src={kefirAddon.image ? `${BASE_URL}${kefirAddon.image}` : "https://images.unsplash.com/photo-1563227812-0ea4c22e6cc8?q=80&w=800&auto=format&fit=crop"}
+                                src={getAddonImageUrl(kefirAddon.name, (kefirAddon as any).thumbnail || kefirAddon.image)}
                                 alt={kefirAddon.name}
                                 className="w-full h-full object-contain drop-shadow-lg"
                             />
@@ -564,13 +524,13 @@ export const OrderFlowPage: React.FC<OrderFlowPageProps> = ({ onBack }) => {
                 </div>
             )}
 
-            <div className="max-w-4xl mx-auto">
+            <div className="max-w-4xl mx-auto relative z-10">
 
                 {/* === STEP 1: THE BUILD === */}
                 {currentStep === 1 && (
                     <div className="animate-in slide-in-from-right duration-300">
-                        <div className="text-center mb-6 md:mb-8">
-                            <h2 className="font-heading text-2xl md:text-4xl bg-white border-3 border-black inline-block px-6 py-2 shadow-hard rotate-1">BUILD THE PLAN 🛠️</h2>
+                        <div className="text-center mb-8 md:mb-12">
+                            <h2 className="font-heading text-3xl md:text-5xl bg-white border-4 border-black inline-block px-8 py-3 shadow-hard">BUILD THE PLAN 🛠️</h2>
                         </div>
 
                         <div className="grid grid-cols-1 md:grid-cols-3 gap-6 md:gap-8 items-start relative">
@@ -583,7 +543,7 @@ export const OrderFlowPage: React.FC<OrderFlowPageProps> = ({ onBack }) => {
                                     {loadingMenu ? (
                                         <div className="text-center py-8">
                                             <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-black mx-auto mb-2"></div>
-                                            <p className="font-heading text-sm">LOADING MENU...</p>
+                                            <p className="font-heading text-sm">Curating the best for you...</p>
                                         </div>
                                     ) : (
                                         <>
@@ -594,14 +554,11 @@ export const OrderFlowPage: React.FC<OrderFlowPageProps> = ({ onBack }) => {
                                                         key={plan.id}
                                                         onClick={() => {
                                                             setCurrentPlanIndex(index);
-                                                            // Ensure an item is selected when switching plans if current selected item is not in new plan?
-                                                            // Or just let user select.
-                                                            // Logic: If user switches plan, auto-select first item of new plan?
                                                             if (plan.items && plan.items.length > 0) {
                                                                 setSelectedItem(plan.items[0]);
                                                             }
                                                         }}
-                                                        className={`py-3 md:py-4 border-3 border-black rounded-xl font-heading text-lg md:text-xl transition-all uppercase ${index === currentPlanIndex ? 'bg-quirky-yellow shadow-hard -rotate-1' : 'bg-gray-100 hover:bg-gray-200'}`}
+                                                        className={`py-3 md:py-4 border-3 border-black rounded-xl font-heading text-lg md:text-xl transition-all uppercase ${index === currentPlanIndex ? 'bg-quirky-yellow shadow-hard -rotate-1' : 'bg-white shadow-sm hover:shadow-hard hover:-translate-y-1'}`}
                                                     >
                                                         {plan.name}
                                                     </button>
@@ -616,7 +573,7 @@ export const OrderFlowPage: React.FC<OrderFlowPageProps> = ({ onBack }) => {
                                                         <button
                                                             key={item.id}
                                                             onClick={() => setSelectedItem(item)}
-                                                            className={`relative group w-full h-48 rounded-2xl overflow-hidden border-4 transition-all duration-300 ${isSelected ? 'border-quirky-pink shadow-hard -translate-y-1' : 'border-black hover:shadow-hard'}`}
+                                                            className={`relative group w-full h-48 rounded-2xl overflow-hidden border-4 transition-all duration-300 ${isSelected ? 'border-quirky-yellow shadow-hard -translate-y-1 scale-[1.02] rotate-1 z-10' : 'border-black hover:shadow-hard hover:-translate-y-1'}`}
                                                         >
                                                             {/* Background Image */}
                                                             <div className="absolute inset-0">
@@ -625,18 +582,18 @@ export const OrderFlowPage: React.FC<OrderFlowPageProps> = ({ onBack }) => {
                                                                     alt={item.name}
                                                                     className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-110"
                                                                 />
-                                                                {/* Dark Gradient Overlay */}
-                                                                <div className={`absolute inset-0 bg-gradient-to-t ${isSelected ? 'from-quirky-pink/90 to-transparent' : 'from-black/80 via-black/20 to-transparent'}`}></div>
+                                                                {/* Dark Gradient Overlay - Always Dark for Contrast */}
+                                                                <div className="absolute inset-0 bg-gradient-to-t from-black/90 via-black/40 to-transparent"></div>
                                                             </div>
 
                                                             {/* Content Overlay */}
                                                             <div className="absolute bottom-0 left-0 right-0 p-4 text-left">
                                                                 <div className="flex justify-between items-end">
                                                                     <div>
-                                                                        <h4 className={`font-heading text-xl uppercase leading-none mb-1 text-white shadow-black drop-shadow-md`}>{item.name}</h4>
+                                                                        <h4 className="font-heading text-xl uppercase leading-none mb-1 text-white drop-shadow-md">{item.name}</h4>
                                                                         {item.proteinAmount > 0 && <p className="text-white/90 text-xs font-bold">{item.proteinAmount}g PROTEIN</p>}
                                                                     </div>
-                                                                    <div className={`px-2 py-1 rounded font-bold text-sm shadow-[2px_2px_0_0_#000] ${isSelected ? 'bg-white text-quirky-pink' : 'bg-quirky-yellow text-black'}`}>
+                                                                    <div className={`px-2 py-1 rounded font-bold text-sm shadow-[2px_2px_0_0_#000] ${isSelected ? 'bg-white text-black' : 'bg-quirky-yellow text-black'}`}>
                                                                         ₹{item.price}
                                                                     </div>
                                                                 </div>
@@ -644,7 +601,7 @@ export const OrderFlowPage: React.FC<OrderFlowPageProps> = ({ onBack }) => {
 
                                                             {/* Selected Indicator */}
                                                             {isSelected && (
-                                                                <div className="absolute top-2 right-2 bg-white text-quirky-pink rounded-full p-1 border-2 border-black shadow-sm">
+                                                                <div className="absolute top-2 right-2 bg-quirky-yellow text-black rounded-full p-1 border-2 border-black shadow-sm animate-in zoom-in spin-in-12 duration-300">
                                                                     <Check size={20} strokeWidth={3} />
                                                                 </div>
                                                             )}
@@ -657,104 +614,6 @@ export const OrderFlowPage: React.FC<OrderFlowPageProps> = ({ onBack }) => {
                                             </div>
                                         </>
                                     )}
-                                </div>
-
-                                {/* Duration Selection */}
-                                <div className="bg-white border-4 border-black p-4 md:p-6 rounded-3xl shadow-hard">
-                                    <div className="flex justify-between items-center mb-6">
-                                        <h3 className="font-heading text-lg md:text-xl">DURATION</h3>
-                                        <span className="font-heading text-xl md:text-2xl text-quirky-blue">{days} DAYS</span>
-                                    </div>
-
-                                    {/* Custom Slider for Stops [1, 7, 14, 24, 30] */}
-                                    <div className="mb-8 px-2 relative">
-                                        <input
-                                            type="range"
-                                            min="1"
-                                            max="30"
-                                            step="1"
-                                            value={days}
-                                            onChange={(e) => setDays(parseInt(e.target.value))}
-                                            className="w-full h-4 accent-quirky-pink cursor-pointer"
-                                        />
-                                        {/* Tick Marks / Labels */}
-                                        <div className="relative w-full h-6 mt-2 font-heading text-xs text-gray-500">
-                                            <span className="absolute left-0 -translate-x-1/2" style={{ left: '0%' }}>1</span>
-                                            <span className="absolute left-0 -translate-x-1/2" style={{ left: '20.6%' }}>7</span>
-                                            <span className="absolute left-0 -translate-x-1/2" style={{ left: '44.8%' }}>14</span>
-                                            <span className="absolute left-0 -translate-x-1/2" style={{ left: '79.3%' }}>24</span>
-                                            <span className="absolute right-0 translate-x-1/2 md:translate-x-0" style={{ left: '100%' }}>30</span>
-                                        </div>
-                                    </div>
-
-                                    <div className="grid grid-cols-2 gap-3 md:gap-4 mb-6">
-                                        <button onClick={() => setMealsPerDay(1)} className={`py-3 border-3 border-black rounded-xl font-heading text-sm md:text-base ${mealsPerDay === 1 ? 'bg-quirky-green' : 'bg-white'}`}>JUST LUNCH</button>
-                                        <button onClick={() => setMealsPerDay(2)} className={`py-3 border-3 border-black rounded-xl font-heading text-sm md:text-base ${mealsPerDay === 2 ? 'bg-quirky-green' : 'bg-white'}`}>LUNCH & DINNER</button>
-                                    </div>
-
-                                    <div className="mb-2">
-                                        <h3 className="font-heading text-lg md:text-xl mb-2">START DATE</h3>
-                                        <input
-                                            type="date"
-                                            value={startDate}
-                                            min={new Date().toISOString().split('T')[0]}
-                                            onChange={(e) => setStartDate(e.target.value)}
-                                            className="w-full border-3 border-black p-3 rounded-xl font-heading focus:bg-pink-50 outline-none"
-                                        />
-                                    </div>
-                                </div>
-
-                                {/* Add-ons */}
-                                <div className="bg-white border-4 border-black p-4 md:p-6 rounded-3xl shadow-hard">
-                                    <h3 className="font-heading text-lg md:text-xl mb-4">EXTRAS & BOOSTERS 🥤</h3>
-
-                                    <div className="grid grid-cols-2 gap-4">
-                                        {availableAddons.map(addon => {
-                                            const addonId = addon.id.toString();
-                                            const sel = addons[addonId] || { quantity: 0, frequency: 'once' };
-                                            const imgUrl = getAddonImageUrl(addon.name, addon.image);
-                                            const isSelected = sel.quantity > 0;
-
-                                            return (
-                                                <div key={addonId} className={`relative flex flex-col border-3 rounded-2xl overflow-hidden transition-all duration-200 ${isSelected ? 'border-quirky-green shadow-hard -translate-y-1 bg-green-50' : 'border-gray-200 bg-white hover:border-black'}`}>
-                                                    {/* Addon Image Area */}
-                                                    <div className="h-24 w-full relative bg-gray-100 border-b-3 border-black/10">
-                                                        <img src={imgUrl} alt={addon.name} className="w-full h-full object-cover" />
-                                                        {addon.price && <span className="absolute bottom-1 right-1 bg-white/90 backdrop-blur text-black text-xs font-bold px-1.5 py-0.5 rounded border border-black/20">₹{addon.price}</span>}
-                                                    </div>
-
-                                                    {/* Content */}
-                                                    <div className="p-3 flex flex-col flex-1">
-                                                        <h4 className="font-heading text-sm md:text-base leading-tight mb-1">{addon.name}</h4>
-
-                                                        {/* Controls */}
-                                                        <div className="mt-auto pt-2 flex items-center justify-between">
-                                                            {isSelected ? (
-                                                                <div className="flex items-center gap-2 w-full justify-between">
-                                                                    <button onClick={(e) => { e.stopPropagation(); updateAddon(addonId, -1, sel.frequency); }} className="w-8 h-8 flex items-center justify-center bg-white border-2 border-black rounded hover:bg-red-50 text-red-500"><Minus size={14} strokeWidth={3} /></button>
-                                                                    <span className="font-heading text-lg">{sel.quantity}</span>
-                                                                    <button onClick={(e) => { e.stopPropagation(); handleAddonClick(addon); }} className="w-8 h-8 flex items-center justify-center bg-quirky-green border-2 border-black rounded hover:bg-green-400"><Plus size={14} /></button>
-                                                                </div>
-                                                            ) : (
-                                                                <button onClick={() => handleAddonClick(addon)} className="w-full py-1.5 bg-gray-100 hover:bg-quirky-yellow border-2 border-transparent hover:border-black rounded-lg font-heading text-xs transition-colors flex items-center justify-center gap-1 group">
-                                                                    <span>ADD</span> <Plus size={14} className="group-hover:scale-110 transition-transform" />
-                                                                </button>
-                                                            )}
-                                                        </div>
-
-                                                        {/* Frequency Badge */}
-                                                        {isSelected && addon.allowSubscription && (
-                                                            <div className="mt-2 text-center">
-                                                                <span className={`text-[10px] font-bold px-2 py-0.5 rounded border border-black/50 ${sel.frequency === 'daily' ? 'bg-quirky-purple text-white' : 'bg-white text-gray-500'}`}>
-                                                                    {sel.frequency === 'daily' ? 'EVERY DAY' : 'JUST ONCE'}
-                                                                </span>
-                                                            </div>
-                                                        )}
-                                                    </div>
-                                                </div>
-                                            );
-                                        })}
-                                    </div>
                                 </div>
                             </div>
 
@@ -837,7 +696,122 @@ export const OrderFlowPage: React.FC<OrderFlowPageProps> = ({ onBack }) => {
                                 </div>
                             </div>
                         </div>
+
+                        {/* Duration Selection & Addons Below */}
+                        <div className="mt-8 grid grid-cols-1 md:grid-cols-2 gap-6 md:gap-8">
+                            {/* Duration Selection */}
+                            <div className="bg-white border-4 border-black p-4 md:p-6 rounded-3xl shadow-hard">
+                                <div className="flex justify-between items-center mb-6">
+                                    <h3 className="font-heading text-lg md:text-xl">DURATION</h3>
+                                    <span className="font-heading text-xl md:text-2xl text-quirky-blue">{days} DAYS</span>
+                                </div>
+
+                                {/* Custom Slider for Stops [1, 7, 14, 24, 30] */}
+                                <div className="mb-8 px-2 relative">
+                                    <input
+                                        type="range"
+                                        min="1"
+                                        max="30"
+                                        step="1"
+                                        value={days}
+                                        onChange={(e) => setDays(parseInt(e.target.value))}
+                                        className="w-full h-4 accent-quirky-pink cursor-pointer"
+                                    />
+                                    {/* Tick Marks / Labels */}
+                                    <div className="relative w-full h-6 mt-2 font-heading text-xs text-gray-500">
+                                        <span className="absolute left-0 -translate-x-1/2" style={{ left: '0%' }}>1</span>
+                                        <span className="absolute left-0 -translate-x-1/2" style={{ left: '20.6%' }}>7</span>
+                                        <span className="absolute left-0 -translate-x-1/2" style={{ left: '44.8%' }}>14</span>
+                                        <span className="absolute left-0 -translate-x-1/2" style={{ left: '79.3%' }}>24</span>
+                                        <span className="absolute right-0 translate-x-1/2 md:translate-x-0" style={{ left: '100%' }}>30</span>
+                                    </div>
+                                </div>
+
+                                <div className="grid grid-cols-2 gap-3 md:gap-4 mb-6">
+                                    <button onClick={() => setMealsPerDay(1)} className={`py-3 border-3 border-black rounded-xl font-heading text-sm md:text-base ${mealsPerDay === 1 ? 'bg-quirky-green' : 'bg-white'}`}>JUST LUNCH</button>
+                                    <button onClick={() => setMealsPerDay(2)} className={`py-3 border-3 border-black rounded-xl font-heading text-sm md:text-base ${mealsPerDay === 2 ? 'bg-quirky-green' : 'bg-white'}`}>LUNCH & DINNER</button>
+                                </div>
+
+                                <div className="mb-2">
+                                    <h3 className="font-heading text-lg md:text-xl mb-2">START DATE</h3>
+                                    <input
+                                        type="date"
+                                        value={startDate}
+                                        min={new Date().toISOString().split('T')[0]}
+                                        onChange={(e) => setStartDate(e.target.value)}
+                                        className="w-full border-3 border-black p-3 rounded-xl font-heading focus:bg-pink-50 outline-none"
+                                    />
+                                </div>
+                            </div>
+
+                            {/* Add-ons */}
+                            <div className="bg-white border-4 border-black p-4 md:p-6 rounded-3xl shadow-hard">
+                                <h3 className="font-heading text-lg md:text-xl mb-4">EXTRAS & BOOSTERS 🥤</h3>
+
+                                <div className="grid grid-cols-2 gap-4">
+                                    {availableAddons.map(addon => {
+                                        const addonId = addon.id.toString();
+                                        const sel = addons[addonId] || { quantity: 0, frequency: 'once' };
+                                        const imgUrl = getAddonImageUrl(addon.name, (addon as any).thumbnail || addon.image);
+                                        const isSelected = sel.quantity > 0;
+
+                                        return (
+                                            <div key={addonId} className={`relative flex flex-col border-3 rounded-2xl overflow-hidden transition-all duration-200 ${isSelected ? 'border-quirky-green shadow-hard -translate-y-1 bg-green-50' : 'border-gray-200 bg-white hover:border-black'}`}>
+                                                {/* Addon Image Area */}
+                                                <div className="h-24 w-full relative bg-gray-100 border-b-3 border-black/10">
+                                                    <img src={imgUrl} alt={addon.name} className="w-full h-full object-cover" />
+                                                    {addon.price && <span className="absolute bottom-1 right-1 bg-white/90 backdrop-blur text-black text-xs font-bold px-1.5 py-0.5 rounded border border-black/20">₹{addon.price}</span>}
+                                                </div>
+
+                                                {/* Content */}
+                                                <div className="p-3 flex flex-col flex-1">
+                                                    <h4 className="font-heading text-sm md:text-base leading-tight mb-1">{addon.name}</h4>
+
+                                                    {/* Controls */}
+                                                    <div className="mt-auto pt-2 flex items-center justify-between">
+                                                        {isSelected ? (
+                                                            <div className="flex items-center gap-2 w-full justify-between">
+                                                                <button onClick={(e) => { e.stopPropagation(); updateAddon(addonId, -1, sel.frequency); }} className="w-8 h-8 flex items-center justify-center bg-white border-2 border-black rounded hover:bg-red-50 text-red-500"><Minus size={14} strokeWidth={3} /></button>
+                                                                <span className="font-heading text-lg">{sel.quantity}</span>
+                                                                <button onClick={(e) => { e.stopPropagation(); handleAddonClick(addon); }} className="w-8 h-8 flex items-center justify-center bg-quirky-green border-2 border-black rounded hover:bg-green-400"><Plus size={14} /></button>
+                                                            </div>
+                                                        ) : (
+                                                            <button onClick={() => handleAddonClick(addon)} className="w-full py-1.5 bg-gray-100 hover:bg-quirky-yellow border-2 border-transparent hover:border-black rounded-lg font-heading text-xs transition-colors flex items-center justify-center gap-1 group">
+                                                                <span>ADD</span> <Plus size={14} className="group-hover:scale-110 transition-transform" />
+                                                            </button>
+                                                        )}
+                                                    </div>
+
+                                                    {/* Frequency Badge */}
+                                                    {isSelected && addon.allowSubscription && (
+                                                        <div className="mt-2 text-center">
+                                                            <span className={`text-[10px] font-bold px-2 py-0.5 rounded border border-black/50 ${sel.frequency === 'daily' ? 'bg-quirky-purple text-white' : 'bg-white text-gray-500'}`}>
+                                                                {sel.frequency === 'daily' ? 'EVERY DAY' : 'JUST ONCE'}
+                                                            </span>
+                                                        </div>
+                                                    )}
+                                                </div>
+                                            </div>
+                                        );
+                                    })}
+                                </div>
+                            </div>
+                        </div>
+
+                        {/* Notes Section */}
+                        <div className="bg-white border-4 border-black p-4 md:p-6 rounded-3xl shadow-hard">
+                            <h3 className="font-heading text-lg md:text-xl mb-4">SPECIAL INSTRUCTIONS 📝</h3>
+                            <textarea
+                                value={notes}
+                                onChange={(e) => setNotes(e.target.value)}
+                                placeholder="Less spice? No cilantro? Let the chef know..."
+                                className="w-full border-3 border-black p-3 rounded-xl font-heading text-sm focus:bg-quirky-yellow/20 outline-none h-24 resize-none transition-colors"
+                            />
+                        </div>
                     </div>
+
+
+
                 )}
 
                 {/* === STEP 2: THE DROP (DETAILS & MAP) === */}

@@ -129,7 +129,15 @@ const HomePage: React.FC<HomePageProps> = ({ scrolled, isLoggedIn, onLogout, onG
   const navigate = useNavigate();
 
   return (
-    <div className="min-h-screen overflow-x-hidden selection:bg-quirky-green selection:text-black">
+    <div className="min-h-screen overflow-x-hidden selection:bg-quirky-green selection:text-black relative">
+      {/* Global Background Gradient */}
+      <div className="fixed inset-0 pointer-events-none z-0 bg-gradient-to-b from-[#f0fff4] to-white"></div>
+
+      {/* Global Background Pattern - Diagonal Motion Lines (Fitness Vibe) */}
+      <div className="fixed inset-0 pointer-events-none z-0 opacity-[0.04]"
+        style={{ backgroundImage: 'repeating-linear-gradient(45deg, #000 0, #000 2px, transparent 0, transparent 40px)' }}>
+      </div>
+
       {/* Navbar */}
       <nav className="fixed top-2 md:top-4 left-0 right-0 z-50 transition-all duration-300 pointer-events-none flex justify-between items-center px-4 md:px-8">
         {/* Logo on far left */}

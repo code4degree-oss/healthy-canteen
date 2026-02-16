@@ -117,7 +117,7 @@ export const compressImage = async (
     quality: number = COMPRESSION_QUALITY
 ): Promise<string> => {
     const targetPath = outputPath || inputPath;
-    const tempPath = inputPath + '.tmp';
+    const tempPath = inputPath + '.compressed.tmp';
 
     try {
         await sharp(inputPath)
@@ -125,17 +125,28 @@ export const compressImage = async (
             .jpeg({ quality, mozjpeg: true })
             .toFile(tempPath);
 
-        // Replace original with compressed
-        fs.unlinkSync(inputPath);
-        fs.renameSync(tempPath, targetPath);
+        // Safely replace: copy temp over original, then delete temp
+        // This avoids the race condition where unlinkSync(inputPath) succeeds
+        // but renameSync fails (common on Windows/OneDrive), leaving no file
+        try {
+            if (fs.existsSync(inputPath)) {
+                fs.unlinkSync(inputPath);
+            }
+        } catch (e) {
+            // If we can't delete original, that's ok - just overwrite via copy
+        }
+        fs.copyFileSync(tempPath, targetPath);
+        fs.unlinkSync(tempPath);
 
         return targetPath;
     } catch (error) {
         // Cleanup temp file if exists
         if (fs.existsSync(tempPath)) {
-            fs.unlinkSync(tempPath);
+            try { fs.unlinkSync(tempPath); } catch { }
         }
-        throw error;
+        // If compression failed, the original file should still be intact
+        console.warn(`Image compression failed for ${inputPath}, using original:`, error);
+        return inputPath;
     }
 };
 

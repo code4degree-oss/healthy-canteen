@@ -33,6 +33,10 @@ AddOn.init({
         type: DataTypes.STRING,
         allowNull: true,
     },
+    thumbnail: {
+        type: DataTypes.STRING,
+        allowNull: true,
+    },
     allowSubscription: {
         type: DataTypes.BOOLEAN,
         defaultValue: false,

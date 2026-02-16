@@ -1,13 +1,25 @@
 import React, { useState, useEffect } from 'react';
 import { ProteinType, AddOn, UserSubscription, OrderHistoryItem, Notification } from '../types';
-import { ADD_ONS } from '../constants';
 import { QuirkyButton } from './QuirkyButton';
 import { ArrowLeft, Pause, Play, Plus, Zap, Calendar, ShoppingBag, Receipt, Bell, Truck, Info, CheckCircle, X } from 'lucide-react';
-import { orders, subscriptions, notifications } from '../src/services/api';
+import { orders, subscriptions, notifications, menu, API_URL } from '../src/services/api';
 
 interface ClientDashboardProps {
     onBack: () => void;
 }
+
+const DASH_BASE_URL = API_URL.replace('/api', '');
+
+const getAddonImageUrl = (name: string, imagePath?: string) => {
+    if (imagePath) {
+        if (imagePath.startsWith('http://') || imagePath.startsWith('https://')) return imagePath;
+        return `${DASH_BASE_URL}${imagePath}`;
+    }
+    const lower = name.toLowerCase();
+    if (lower.includes('kefir')) return "https://images.unsplash.com/photo-1563227812-0ea4c22e6cc8?q=80&w=800&auto=format&fit=crop";
+    if (lower.includes('cookie')) return "https://images.unsplash.com/photo-1499636138143-bd649043ea52?q=80&w=800&auto=format&fit=crop";
+    return "https://images.unsplash.com/photo-1550989460-0adf9ea622e2?q=80&w=800&auto=format&fit=crop";
+};
 
 export const ClientDashboard: React.FC<ClientDashboardProps> = ({ onBack }) => {
     const [subscriptionsList, setSubscriptionsList] = useState<UserSubscription[]>([]);
@@ -21,6 +33,9 @@ export const ClientDashboard: React.FC<ClientDashboardProps> = ({ onBack }) => {
     const [notificationList, setNotificationList] = useState<Notification[]>([]);
     const [showNotifications, setShowNotifications] = useState(false);
 
+    // Backend Add-ons
+    const [backendAddons, setBackendAddons] = useState<AddOn[]>([]);
+
     useEffect(() => {
         const user = JSON.parse(localStorage.getItem('user') || '{}');
         if (user.name) {
@@ -29,15 +44,17 @@ export const ClientDashboard: React.FC<ClientDashboardProps> = ({ onBack }) => {
 
         const fetchData = async () => {
             try {
-                const [subRes, ordersRes, notifRes] = await Promise.all([
+                const [subRes, ordersRes, notifRes, addonsRes] = await Promise.all([
                     orders.getActiveSubscription(),
                     orders.getAll(),
-                    notifications.getAll().catch(() => ({ data: [] })) // Handle failure gracefully
+                    notifications.getAll().catch(() => ({ data: [] })), // Handle failure gracefully
+                    menu.getAddOns().catch(() => ({ data: [] }))
                 ]);
                 const subs = Array.isArray(subRes.data) ? subRes.data : (subRes.data ? [subRes.data] : []);
 
                 setSubscriptionsList(subs);
                 setNotificationList(notifRes.data);
+                setBackendAddons(addonsRes.data);
 
                 // Map backend order to frontend OrderHistoryItem
                 const mappedOrders = ordersRes.data.map((o: any) => ({
@@ -295,11 +312,14 @@ export const ClientDashboard: React.FC<ClientDashboardProps> = ({ onBack }) => {
                         <div className="bg-quirky-pink border-4 border-black rounded-3xl p-6 md:p-8 shadow-hard text-white relative">
                             <h3 className="font-heading text-2xl mb-6 border-b-4 border-white pb-2">NEED A BOOST?</h3>
                             <div className="space-y-4">
-                                {ADD_ONS.map((addon) => (
+                                {backendAddons.map((addon) => (
                                     <div key={addon.id} className="bg-white text-black p-4 rounded-xl border-2 border-black flex justify-between items-center group hover:scale-105 transition-transform">
-                                        <div>
-                                            <div className="font-heading text-lg">{addon.name}</div>
-                                            <div className="font-heading text-sm text-quirky-pink">₹{addon.price}</div>
+                                        <div className="flex items-center gap-3">
+                                            <img src={getAddonImageUrl(addon.name, (addon as any).thumbnail || addon.image)} alt={addon.name} className="w-12 h-12 rounded-lg object-cover border border-black/10" />
+                                            <div>
+                                                <div className="font-heading text-lg">{addon.name}</div>
+                                                <div className="font-heading text-sm text-quirky-pink">₹{addon.price}</div>
+                                            </div>
                                         </div>
                                         <button
                                             onClick={() => setShowAddonModal(addon)}

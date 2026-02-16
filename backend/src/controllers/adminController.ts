@@ -1,4 +1,6 @@
 import { Request, Response } from 'express';
+import fs from 'fs';
+import path from 'path';
 import { Op } from 'sequelize';
 import User from '../models/User';
 import MenuItem from '../models/MenuItem';
@@ -11,6 +13,61 @@ import DeliveryLog from '../models/DeliveryLog';
 import Notification from '../models/Notification';
 
 // --- USERS ---
+
+export const getAdminStats = async (req: Request, res: Response) => {
+    try {
+        // 1. Active Users (Users with at least one ACTIVE subscription)
+        const activeUsersCount = await User.count({
+            distinct: true,
+            include: [{
+                model: Subscription,
+                as: 'subscriptions',
+                where: { status: 'ACTIVE' },
+                required: true
+            }]
+        });
+
+        // 2. Total Revenue (Sum of all orders)
+        const totalRevenue = await Order.sum('totalPrice');
+
+        // 3. Meals to Prep Today (Aggregate active subscriptions by protein)
+        const activeSubs = await Subscription.findAll({
+            where: { status: 'ACTIVE' },
+            attributes: ['protein', 'mealsPerDay']
+        });
+
+        const proteinCounts: Record<string, number> = {};
+        activeSubs.forEach(sub => {
+            const protein = sub.protein?.toUpperCase() || 'UNKNOWN';
+            proteinCounts[protein] = (proteinCounts[protein] || 0) + (sub.mealsPerDay || 0);
+        });
+
+        // 4. Recent Orders
+        const recentOrders = await Order.findAll({
+            limit: 5,
+            order: [['createdAt', 'DESC']],
+            include: [{ model: User, as: 'user', attributes: ['name'] }]
+        });
+
+        const recentOrdersFormatted = recentOrders.map(order => ({
+            id: order.id,
+            customerName: (order as any).user?.name || 'Unknown',
+            date: new Date(order.createdAt).toLocaleDateString(),
+            amount: order.totalPrice,
+            description: `${order.days} Days`
+        }));
+
+        res.json({
+            activeCount: activeUsersCount,
+            totalRevenue: totalRevenue || 0,
+            proteinCounts,
+            recentOrders: recentOrdersFormatted
+        });
+    } catch (error) {
+        console.error("Error fetching admin stats:", error);
+        res.status(500).json({ message: 'Error fetching stats', error });
+    }
+};
 
 export const getAllUsers = async (req: Request, res: Response) => {
     try {
@@ -33,7 +90,7 @@ export const getAllUsers = async (req: Request, res: Response) => {
                 {
                     model: Order,
                     as: 'orders',
-                    attributes: ['id', 'totalPrice', 'createdAt', 'days', 'mealsPerDay']
+                    attributes: ['id', 'totalPrice', 'createdAt', 'days', 'mealsPerDay', 'notes']
                 },
                 {
                     model: Subscription,
@@ -87,6 +144,8 @@ export const createUser = async (req: Request, res: Response) => {
 
 // --- MENU ---
 
+// --- MENU ---
+
 export const getMenu = async (req: Request, res: Response) => {
     try {
         const menu = await MenuItem.findAll();
@@ -98,9 +157,34 @@ export const getMenu = async (req: Request, res: Response) => {
 
 export const addMenuItem = async (req: Request, res: Response) => {
     try {
-        const item = await MenuItem.create(req.body);
+        const { name, slug, description, proteinAmount, calories, price, color } = req.body;
+        let images: string[] = [];
+
+        // 1. Handle existing images (passed as strings)
+        if (req.body.existingImages) {
+            const existing = Array.isArray(req.body.existingImages)
+                ? req.body.existingImages
+                : [req.body.existingImages];
+            images = [...images, ...existing];
+        }
+
+        // 2. Handle new uploads
+        if (req.files && Array.isArray(req.files) && req.files.length > 0) {
+            const { processUploadedImages, UploadFolder } = await import('../utils/fileUpload');
+            const processed = await processUploadedImages(req.files as Express.Multer.File[], UploadFolder.MENU_ITEMS);
+            const newUrls = processed.map(p => `/uploads${p.original}`);
+            images = [...images, ...newUrls];
+        }
+
+        const item = await MenuItem.create({
+            name, slug, description,
+            proteinAmount, calories, price, color,
+            images,
+            image: images.length > 0 ? images[0] : null // Set primary image
+        });
         res.status(201).json(item);
     } catch (error) {
+        console.error("Error adding menu item:", error);
         res.status(500).json({ message: 'Error adding menu item', error });
     }
 };
@@ -108,9 +192,54 @@ export const addMenuItem = async (req: Request, res: Response) => {
 export const updateMenuItem = async (req: Request, res: Response) => {
     try {
         const { id } = req.params;
-        await MenuItem.update(req.body, { where: { id } });
-        res.json({ message: 'Menu item updated' });
+        const { name, slug, description, proteinAmount, calories, price, color } = req.body;
+
+        const item = await MenuItem.findByPk(id);
+        if (!item) return res.status(404).json({ message: 'Item not found' });
+
+        // Update basic fields
+        if (name !== undefined) item.name = name;
+        if (slug !== undefined) item.slug = slug;
+        if (description !== undefined) item.description = description;
+        if (proteinAmount !== undefined) item.proteinAmount = proteinAmount;
+        if (calories !== undefined) item.calories = calories;
+        if (price !== undefined) item.price = price;
+        if (color !== undefined) item.color = color;
+
+        // Image Handling (Merge existing string URLs with new uploads)
+        let finalImages: string[] = [];
+
+        // 1. Strings (Existing URLs passed back from frontend)
+        if (req.body.images) {
+            // In multipart/form-data, logic can be tricky if sending array. 
+            // Frontend typically sends 'images[]'.
+            const imgs = Array.isArray(req.body.images) ? req.body.images : [req.body.images];
+            // Filter out any "undefined" or empty strings that might slip in
+            finalImages = imgs.filter((i: string) => i && typeof i === 'string' && i.startsWith('/uploads'));
+        }
+
+        // 2. New Uploads
+        if (req.files && Array.isArray(req.files) && req.files.length > 0) {
+            const { processUploadedImages, UploadFolder } = await import('../utils/fileUpload');
+            const processed = await processUploadedImages(req.files as Express.Multer.File[], UploadFolder.MENU_ITEMS);
+            const newUrls = processed.map(p => `/uploads${p.original}`);
+            finalImages = [...finalImages, ...newUrls];
+        }
+
+        // Only update images if we actually received something (to allow partial updates of other fields without wiping images)
+        // BUT for an update form that sends the "current state" of images (including deletions), we WANT to overwrite.
+        // We'll assume the frontend sends the *complete* list of images desired.
+        // If req.body.images OR req.files is present, we update.
+        if (req.body.images || (req.files && Array.isArray(req.files) && (req.files as any).length > 0)) {
+            item.images = finalImages;
+            // Update primary image (first one)
+            item.image = finalImages.length > 0 ? finalImages[0] : '';
+        }
+
+        await item.save();
+        res.json({ message: 'Menu item updated', item });
     } catch (error) {
+        console.error("Error updating menu item:", error);
         res.status(500).json({ message: 'Error updating menu item', error });
     }
 };
@@ -143,11 +272,14 @@ export const addAddOn = async (req: Request, res: Response) => {
         let image = null;
         let thumbnail = null;
 
+        // 1. Check if image URL is passed (selected from gallery)
+        if (req.body.image && typeof req.body.image === 'string') {
+            image = req.body.image;
+            thumbnail = req.body.image; // Use same for thumbnail for now
+        }
+
+        // 2. Check for file upload (overrides string if present)
         if (req.file) {
-            // Process single file using utility (wrap in array)
-            // Note: 'req.file' comes from single() upload, but our utility expects array if reusing 'processUploadedImages'. 
-            // Or we can manually process. 
-            // Since 'processUploadedImages' accepts array, let's cast 'req.file' to array.
             const files = [req.file];
             const processed = await import('../utils/fileUpload').then(m => m.processUploadedImages(files, m.UploadFolder.ADDONS));
             if (processed.length > 0) {
@@ -189,20 +321,22 @@ export const updateAddOn = async (req: Request, res: Response) => {
         const addon = await AddOn.findByPk(id);
         if (!addon) return res.status(404).json({ message: 'Addon not found' });
 
-        if (name) addon.name = name;
-        if (price) addon.price = price;
-        if (description) addon.description = description;
+        if (name !== undefined) addon.name = name;
+        if (price !== undefined) addon.price = price;
+        if (description !== undefined) addon.description = description;
         if (allowSubscription !== undefined) {
             addon.allowSubscription = allowSubscription === 'true' || allowSubscription === true;
         }
 
+        // 1. Handle String URL
+        if (req.body.image && typeof req.body.image === 'string') {
+            addon.image = req.body.image;
+            addon.thumbnail = req.body.image;
+        }
+
+        // 2. Handle File Upload
         if (req.file) {
-            // Process single file
             const files = [req.file];
-            // Import utility dynamically to avoid circular dep issues in some envs, or just import at top. 
-            // Already imported at top? No, 'processUploadedImages' is in '../utils/fileUpload'.
-            // AdminController didn't import it yet. I need to add import or dynamic import.
-            // Dynamic is safer for this scoped change.
             const { processUploadedImages, UploadFolder } = await import('../utils/fileUpload');
             const processed = await processUploadedImages(files, UploadFolder.ADDONS);
             if (processed.length > 0) {
@@ -258,9 +392,9 @@ export const assignDelivery = async (req: Request, res: Response) => {
         const { subscriptionId, deliveryUserId } = req.body;
 
         // Check if a log already exists for today
-        const today = new Date();
-        const startOfDay = new Date(today.setHours(0, 0, 0, 0));
-        const endOfDay = new Date(today.setHours(23, 59, 59, 999));
+        const now = new Date();
+        const startOfDay = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 0, 0, 0, 0);
+        const endOfDay = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 23, 59, 59, 999);
 
         let log = await DeliveryLog.findOne({
             where: {
@@ -308,9 +442,9 @@ export const markReady = async (req: Request, res: Response) => {
     try {
         const { subscriptionId } = req.body;
 
-        const today = new Date();
-        const startOfDay = new Date(today.setHours(0, 0, 0, 0));
-        const endOfDay = new Date(today.setHours(23, 59, 59, 999));
+        const now = new Date();
+        const startOfDay = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 0, 0, 0, 0);
+        const endOfDay = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 23, 59, 59, 999);
 
         let log = await DeliveryLog.findOne({
             where: {
@@ -336,5 +470,103 @@ export const markReady = async (req: Request, res: Response) => {
     } catch (error) {
         console.error("Mark Ready error", error);
         res.status(500).json({ message: 'Error marking order as ready' });
+    }
+};
+
+// --- IMAGE MANAGEMENT ---
+
+export const getImages = async (req: Request, res: Response) => {
+    try {
+        const uploadsDir = path.join(__dirname, '../../uploads');
+        if (!fs.existsSync(uploadsDir)) {
+            return res.json([]);
+        }
+
+        // Use readdir with withFileTypes for faster scanning (avoids separate stat calls)
+        const dirents = await fs.promises.readdir(uploadsDir, { withFileTypes: true });
+
+        const images = dirents
+            .filter(dirent => dirent.isFile() && /\.(jpg|jpeg|png|webp|gif|svg)$/i.test(dirent.name))
+            .map(dirent => ({
+                name: dirent.name,
+                url: `/uploads/${dirent.name}`,
+                // We skip size/date for speed unless absolutely necessary. 
+                // If sorting by date is required, we'd need 'stat', but let's see if we can do without or use a faster method.
+                // For now, let's just return names. If we REALLY need sort by date, we can use fs.stat but concurrently.
+            }));
+
+        // If we want to sort by date (newest first), we do need stats. 
+        // Let's do it efficiently with Promise.all if standard readdir isn't enough.
+        // Actually, for a gallery, sorting by date is usually important.
+
+        const imagesWithDate = await Promise.all(
+            images.map(async (img) => {
+                const stats = await fs.promises.stat(path.join(uploadsDir, img.name));
+                return { ...img, date: stats.mtime, size: stats.size };
+            })
+        );
+
+        imagesWithDate.sort((a, b) => b.date.getTime() - a.date.getTime());
+
+        res.json(imagesWithDate);
+    } catch (error) {
+        console.error("Error fetching images:", error);
+        res.status(500).json({ message: 'Error fetching images', error });
+    }
+};
+
+export const deleteImage = async (req: Request, res: Response) => {
+    try {
+        const { filename } = req.params;
+        if (!filename) return res.status(400).json({ message: 'Filename required' });
+
+        // Prevent directory traversal
+        const safeFilename = path.basename(filename);
+        const filepath = path.join(__dirname, '../../uploads', safeFilename);
+
+        // 1. Delete from Disk
+        if (fs.existsSync(filepath)) {
+            fs.unlinkSync(filepath);
+        } else {
+            console.warn(`File not found on disk: ${filepath}`);
+        }
+
+        const imagePath = `/uploads/${safeFilename}`;
+
+        // 3. Cleanup MenuItems (Optimized)
+        // Direct matches
+        await MenuItem.update({ image: null }, { where: { image: imagePath } });
+        // Assuming thumbnail is also a string path
+        // await MenuItem.update({ thumbnail: null }, { where: { thumbnail: imagePath } }); 
+
+        // JSON Array scan (Optimized using Postgres Operator if available, but for SQLite/Basic JSON, we need a better approach than fetching all)
+        // Since we are using Sequelize with Postgres (per requirements), we can use the JSON operators.
+        // However, if we want to be safe and generic without raw queries:
+        // We can fetch ONLY items that contain the image in the array.
+
+        // Postgres: 
+        // WHERE "images" @> '["/uploads/filename.jpg"]'
+
+        const itemsWithImage = await MenuItem.findAll({
+            where: {
+                images: {
+                    [Op.contains]: [imagePath] // This is much faster than fetching ALL items
+                }
+            }
+        });
+
+        for (const item of itemsWithImage) {
+            const newImages = item.images.filter((img: string) => img !== imagePath);
+            await MenuItem.update({ images: newImages }, { where: { id: item.id } });
+        }
+
+        // 4. Cleanup AddOns
+        await AddOn.update({ image: null }, { where: { image: imagePath } });
+        await AddOn.update({ thumbnail: null }, { where: { thumbnail: imagePath } });
+
+        res.json({ message: 'Image deleted and database references cleaned.' });
+    } catch (error) {
+        console.error("Error deleting image:", error);
+        res.status(500).json({ message: 'Error deleting image', error });
     }
 };
