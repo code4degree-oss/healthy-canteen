@@ -120,8 +120,9 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onBack }) => {
             if (settingsRes?.data) setServiceArea(settingsRes.data);
             if (statsRes?.data) setDashboardStats(statsRes.data);
 
-        } catch (error) {
+        } catch (error: any) {
             console.error("Failed to fetch admin data", error);
+            alert(`Failed to load dashboard data: ${error.response?.data?.message || error.message} \n ${error.response?.data?.error || ''}`);
         } finally {
             setLoading(false);
         }
@@ -133,8 +134,9 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onBack }) => {
             setCustomers(res.data.users);
             setTotalUsers(res.data.total);
             setTotalPages(res.data.totalPages);
-        } catch (error) {
+        } catch (error: any) {
             console.error("Failed to fetch customers", error);
+            alert(`Failed to load customers: ${error.response?.data?.message || error.message} \n ${error.response?.data?.error || ''}`);
         }
     };
 
@@ -359,7 +361,9 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onBack }) => {
             calories: item.calories,
             price: item.price,
             color: item.color,
-            image: null
+            color: item.color,
+            image: null,
+            images: item.images || [] // Preserve existing images (if any) or Initialize empty array
         });
         setSelectedItemId(item.id);
         setSelectedPlanId(item.planId);

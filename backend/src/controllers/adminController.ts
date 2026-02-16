@@ -63,9 +63,13 @@ export const getAdminStats = async (req: Request, res: Response) => {
             proteinCounts,
             recentOrders: recentOrdersFormatted
         });
-    } catch (error) {
+    } catch (error: any) {
         console.error("Error fetching admin stats:", error);
-        res.status(500).json({ message: 'Error fetching stats', error });
+        res.status(500).json({
+            message: 'Error fetching stats',
+            error: error.message,
+            stack: process.env.NODE_ENV === 'development' ? error.stack : undefined
+        });
     }
 };
 
@@ -117,7 +121,13 @@ export const getAllUsers = async (req: Request, res: Response) => {
             currentPage: page
         });
     } catch (error) {
-        res.status(500).json({ message: 'Error fetching users', error });
+    } catch (error: any) {
+        console.error("Error fetching users:", error);
+        res.status(500).json({
+            message: 'Error fetching users',
+            error: error.message,
+            stack: process.env.NODE_ENV === 'development' ? error.stack : undefined
+        });
     }
 };
 
