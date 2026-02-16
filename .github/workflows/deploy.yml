@@ -1,47 +1,152 @@
-# name: Deploy to Production
-# 
-# on:
-#   push:
-#     branches: [ "main" ]
-# 
-# jobs:
-#   deploy:
-#     runs-on: ubuntu-latest
-#     steps:
-#       - name: Deploy to Server
-#         uses: appleboy/ssh-action@v1.0.3
-#         with:
-#           host: ${{ secrets.HOST }}
-#           username: ${{ secrets.USERNAME }}
-#           key: ${{ secrets.SSH_KEY }}
-#           script: |
-#             # 1. Navigate to project folder
-#             cd /var/www/the-healthy-canteen
-# 
-#             # 2. Pull latest code
-#             git pull origin main
-# 
-#             # 3. Backend: Install & Build
-#             cd backend
-#             npm install
-#             npm run build
-#             # Ensure dist/server.js exists or adjust start command if needed
-#            
-#             cd ..
-# 
-#             # 4. Frontend: Install & Build
-#             npm install
-#             npm run build
-# 
-#             # 5. Restart Backend
-#             # Check if PM2 process exists, if not start it, otherwise restart
-#             if pm2 list | grep -q "hct-backend"; then
-#               pm2 restart hct-backend
-#             else
-#               cd backend
-#               pm2 start dist/server.js --name "hct-backend"
-#               cd ..
-#             fi
-# 
-#             # 6. Cleanup (Optional)
-#             echo "Deployment Complete!"
+# =============================================================================
+# Deploy to Production — The Healthy Canteen
+# =============================================================================
+# Purpose : Automatically deploy to the VPS after CI passes on main.
+# Flow:
+#   1. CI job runs first (build + type-check frontend & backend)
+#   2. Only if CI passes → SSH into the server and deploy
+#   3. After deploy → run a health-check curl to verify the app is alive
+#
+# Required GitHub Secrets (Settings → Secrets → Actions):
+#   HOST      — VPS IP address or hostname (e.g. 123.45.67.89)
+#   USERNAME  — SSH user on the server   (e.g. deploy)
+#   SSH_KEY   — Private SSH key for that user
+#   DEPLOY_DIR— (optional) Override the deploy directory, default /var/www/the-healthy-canteen
+# =============================================================================
+
+name: Deploy to Production
+
+# ── Trigger ──────────────────────────────────────────────────────────────────
+# Only deploy on pushes to main — never on pull requests.
+# PRs are validated by ci.yml; this workflow ships the result.
+on:
+  push:
+    branches: ["main"]
+
+# ── Concurrency ──────────────────────────────────────────────────────────────
+# Prevent multiple deploys from running at the same time.
+# If a new push arrives while a deploy is in progress, the old deploy
+# is cancelled so the server always ends up on the latest commit.
+concurrency:
+  group: deploy-production
+  cancel-in-progress: true
+
+jobs:
+  # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  # Job 1: CI — Build & Verify (reuse the same steps as ci.yml)
+  # This ensures we never deploy code that doesn't compile.
+  # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  ci:
+    name: CI — Build & Verify
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: "npm"
+          cache-dependency-path: |
+            package-lock.json
+            backend/package-lock.json
+
+      - name: Install & build frontend
+        run: |
+          npm ci
+          npm run build
+
+      - name: Install & build backend
+        working-directory: ./backend
+        run: |
+          npm ci
+          npm run build
+
+  # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  # Job 2: Deploy — SSH into the server and update the running application
+  # Only runs after the CI job succeeds (`needs: ci`).
+  # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  deploy:
+    name: Deploy to VPS
+    needs: ci                        # ← Gate: only deploy if CI passes
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    environment: production          # Shows deploy status badge in GitHub
+
+    steps:
+      - name: Deploy via SSH
+        uses: appleboy/ssh-action@v1.2.0
+        with:
+          host: ${{ secrets.HOST }}
+          username: ${{ secrets.USERNAME }}
+          key: ${{ secrets.SSH_KEY }}
+          # The deploy directory defaults to /var/www/the-healthy-canteen
+          # Override with the DEPLOY_DIR secret if your path differs.
+          script: |
+            set -e  # Exit immediately if any command fails
+
+            DEPLOY_DIR="${{ secrets.DEPLOY_DIR }}"
+            DEPLOY_DIR="${DEPLOY_DIR:-/var/www/the-healthy-canteen}"
+
+            echo "╔══════════════════════════════════════════╗"
+            echo "║  🚀 Starting deployment...               ║"
+            echo "╚══════════════════════════════════════════╝"
+
+            # ── 1. Navigate to project ──────────────────────────────────
+            cd "$DEPLOY_DIR"
+
+            # ── 2. Pull latest code ─────────────────────────────────────
+            echo "→ Pulling latest code from main..."
+            git pull origin main
+
+            # ── 3. Backend: Install & Build ─────────────────────────────
+            echo "→ Installing backend dependencies..."
+            cd backend
+            npm ci --production=false   # Need devDeps for `tsc`
+            echo "→ Building backend (TypeScript → JavaScript)..."
+            npm run build
+
+            # Prune devDependencies after build to keep the server lean
+            npm prune --production
+            cd ..
+
+            # ── 4. Frontend: Install & Build ────────────────────────────
+            echo "→ Installing frontend dependencies..."
+            npm ci
+            echo "→ Building frontend (Vite → dist/)..."
+            npm run build
+
+            # ── 5. Restart the backend via PM2 ─────────────────────────
+            # `pm2 startOrRestart` handles both fresh starts and restarts.
+            # --update-env ensures any new environment variables are picked up.
+            echo "→ Restarting backend with PM2..."
+            if pm2 describe hct-backend > /dev/null 2>&1; then
+              pm2 restart hct-backend --update-env
+            else
+              cd backend
+              NODE_ENV=production pm2 start dist/server.js --name "hct-backend"
+              cd ..
+            fi
+
+            # ── 6. Health Check ─────────────────────────────────────────
+            # Wait a few seconds for the server to boot, then verify it
+            # responds with HTTP 200. This catches startup crashes early.
+            echo "→ Running health check..."
+            sleep 3
+            HTTP_STATUS=$(curl -s -o /dev/null -w "%{http_code}" http://localhost:5000/api/menu || echo "000")
+
+            if [ "$HTTP_STATUS" = "200" ]; then
+              echo "✅ Health check passed (HTTP $HTTP_STATUS)"
+            else
+              echo "⚠️  Health check returned HTTP $HTTP_STATUS"
+              echo "   Check logs with: pm2 logs hct-backend --lines 50"
+              exit 1
+            fi
+
+            echo ""
+            echo "╔══════════════════════════════════════════╗"
+            echo "║  ✅ Deployment complete!                  ║"
+            echo "╚══════════════════════════════════════════╝"

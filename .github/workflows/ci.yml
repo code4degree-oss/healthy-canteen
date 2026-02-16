@@ -1,39 +1,78 @@
-# name: CI Verification
-# 
-# on:
-#   push:
-#     branches: [ "main" ]
-#   pull_request:
-#     branches: [ "main" ]
-# 
-# jobs:
-#   build-and-test:
-#     runs-on: ubuntu-latest
-# 
-#     strategy:
-#       matrix:
-#         node-version: [18.x, 20.x]
-# 
-#     steps:
-#     - uses: actions/checkout@v4
-# 
-#     - name: Use Node.js ${{ matrix.node-version }}
-#       uses: actions/setup-node@v4
-#       with:
-#         node-version: ${{ matrix.node-version }}
-#         cache: 'npm'
-#         cache-dependency-path: '**/package-lock.json'
-# 
-#     - name: Install Frontend Dependencies
-#       run: npm ci
-# 
-#     - name: Build Frontend
-#       run: npm run build
-# 
-#     - name: Install Backend Dependencies
-#       working-directory: ./backend
-#       run: npm ci
-# 
-#     - name: Build Backend
-#       working-directory: ./backend
-#       run: npm run build
+# =============================================================================
+# CI Verification — The Healthy Canteen
+# =============================================================================
+# Purpose : Build-test every push/PR to main so broken code never ships.
+# What it does:
+#   1. Checks out the repo
+#   2. Installs & builds the Vite + React frontend
+#   3. Installs & builds the Express + TypeScript backend
+# If any step fails the PR / push is marked as ❌ in GitHub.
+# =============================================================================
+
+name: CI Verification
+
+# ── Triggers ─────────────────────────────────────────────────────────────────
+# • push to main   → validate that the main branch is always green
+# • pull_request    → catch errors before they get merged
+on:
+  push:
+    branches: ["main"]
+  pull_request:
+    branches: ["main"]
+
+# ── Concurrency ──────────────────────────────────────────────────────────────
+# If a new commit is pushed while CI is still running, cancel the old run.
+# This saves GitHub Actions minutes and avoids stale results.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: Build & Verify
+    runs-on: ubuntu-latest
+    timeout-minutes: 10         # Safety net — kill the job if it hangs
+
+    steps:
+      # ── 1. Checkout ──────────────────────────────────────────────────────
+      # Pull the full repo into the runner so we can access both
+      # the frontend (root) and backend (./backend) projects.
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      # ── 2. Node.js + npm cache ──────────────────────────────────────────
+      # Set up Node 20 (LTS) and cache npm's global store so repeated
+      # installs are faster — especially on PRs that don't change deps.
+      - name: Setup Node.js 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: "npm"
+          cache-dependency-path: |
+            package-lock.json
+            backend/package-lock.json
+
+      # ── 3. Frontend — Install ───────────────────────────────────────────
+      # `npm ci` is used instead of `npm install` because it:
+      #   • Is faster (skips the resolver)
+      #   • Fails if package-lock.json is out of sync with package.json
+      - name: Install frontend dependencies
+        run: npm ci
+
+      # ── 4. Frontend — Build ─────────────────────────────────────────────
+      # Runs `vite build`. This also runs the TypeScript type-checker
+      # through @vitejs/plugin-react, so type errors will surface here.
+      - name: Build frontend
+        run: npm run build
+
+      # ── 5. Backend — Install ────────────────────────────────────────────
+      - name: Install backend dependencies
+        working-directory: ./backend
+        run: npm ci
+
+      # ── 6. Backend — Build ──────────────────────────────────────────────
+      # Compiles TypeScript to JavaScript via `tsc`.
+      # Any type errors in the backend code will fail this step.
+      - name: Build backend
+        working-directory: ./backend
+        run: npm run build
