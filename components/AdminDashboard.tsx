@@ -361,7 +361,6 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onBack }) => {
             calories: item.calories,
             price: item.price,
             color: item.color,
-            color: item.color,
             image: null,
             images: item.images || [] // Preserve existing images (if any) or Initialize empty array
         });

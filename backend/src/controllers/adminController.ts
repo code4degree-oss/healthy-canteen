@@ -120,7 +120,6 @@ export const getAllUsers = async (req: Request, res: Response) => {
             totalPages: Math.ceil(count / limit),
             currentPage: page
         });
-    } catch (error) {
     } catch (error: any) {
         console.error("Error fetching users:", error);
         res.status(500).json({
