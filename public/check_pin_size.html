@@ -1,0 +1,14 @@
+<!DOCTYPE html>
+<html>
+<body>
+    <img id="pin" src="./outlet-pin.png" onload="reportSize()" />
+    <div id="result">Waiting...</div>
+    <script>
+        function reportSize() {
+            const img = document.getElementById('pin');
+            const result = document.getElementById('result');
+            result.innerText = `Size: ${img.naturalWidth}x${img.naturalHeight}`;
+        }
+    </script>
+</body>
+</html>

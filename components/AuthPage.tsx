@@ -15,6 +15,7 @@ export const AuthPage: React.FC<AuthPageProps> = ({ onLoginSuccess, onBack }) =>
     const [form, setForm] = useState({ email: '', password: '', name: '', phone: '' });
     const [error, setError] = useState<string | null>(null);
     const [loading, setLoading] = useState(false);
+    const [showPassword, setShowPassword] = useState(false);
 
     const handleGoogleSuccess = async (credentialResponse: any) => {
         try {
@@ -123,7 +124,12 @@ export const AuthPage: React.FC<AuthPageProps> = ({ onLoginSuccess, onBack }) =>
                                     className="w-full border-3 border-black p-3 rounded-xl font-heading text-sm focus:bg-green-50 focus:outline-none focus:shadow-hard transition-all"
                                     placeholder="98765..."
                                     value={form.phone}
-                                    onChange={e => setForm({ ...form, phone: e.target.value })}
+                                    pattern="[0-9]{10}"
+                                    title="Please enter a valid 10-digit phone number"
+                                    onChange={e => {
+                                        const val = e.target.value.replace(/\D/g, '').slice(0, 10);
+                                        setForm({ ...form, phone: val });
+                                    }}
                                 />
                             </div>
                             <div>
@@ -154,14 +160,23 @@ export const AuthPage: React.FC<AuthPageProps> = ({ onLoginSuccess, onBack }) =>
 
                     <div>
                         <label className="font-heading text-xs uppercase ml-1 mb-1 block">Password</label>
-                        <input
-                            type="password"
-                            required
-                            className="w-full border-3 border-black p-3 rounded-xl font-heading text-sm focus:bg-pink-50 focus:outline-none focus:shadow-hard transition-all"
-                            placeholder="********"
-                            value={form.password}
-                            onChange={e => setForm({ ...form, password: e.target.value })}
-                        />
+                        <div className="relative">
+                            <input
+                                type={showPassword ? "text" : "password"}
+                                required
+                                className="w-full border-3 border-black p-3 rounded-xl font-heading text-sm focus:bg-pink-50 focus:outline-none focus:shadow-hard transition-all pr-12"
+                                placeholder="********"
+                                value={form.password}
+                                onChange={e => setForm({ ...form, password: e.target.value })}
+                            />
+                            <button
+                                type="button"
+                                onClick={() => setShowPassword(!showPassword)}
+                                className="absolute right-4 top-1/2 transform -translate-y-1/2 text-xl"
+                            >
+                                {showPassword ? "👁️" : "🙈"}
+                            </button>
+                        </div>
                     </div>
 
                     <div className="pt-4">

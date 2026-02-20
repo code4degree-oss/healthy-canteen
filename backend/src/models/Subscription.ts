@@ -16,6 +16,9 @@ class Subscription extends Model {
     public mealsPerDay!: number;
     public deliveryAddress!: string;
     public addons!: any;
+    public cancellationReason!: string | null;
+    public lastPausedAt!: Date | null;
+    public mealTypes!: string[];
     public readonly createdAt!: Date;
     public readonly updatedAt!: Date;
 }
@@ -79,6 +82,19 @@ Subscription.init(
             type: DataTypes.JSON,
             allowNull: true,
             defaultValue: []
+        },
+        mealTypes: {
+            type: DataTypes.JSON, // ['LUNCH'], ['DINNER'], or ['LUNCH', 'DINNER']
+            allowNull: false,
+            defaultValue: ['LUNCH']
+        },
+        cancellationReason: {
+            type: DataTypes.STRING,
+            allowNull: true
+        },
+        lastPausedAt: {
+            type: DataTypes.DATE,
+            allowNull: true
         }
     },
     {

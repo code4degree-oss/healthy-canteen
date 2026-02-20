@@ -14,6 +14,7 @@ class Order extends Model {
     public deliveryLat!: number;
     public deliveryLng!: number;
     public deliveryAddress!: string;
+    public mealTypes!: any; // JSON array
     public addons!: any;
     public notes!: string;
     public readonly createdAt!: Date;
@@ -74,6 +75,11 @@ Order.init(
         addons: {
             type: DataTypes.JSON, // Stores array of selected addons
             allowNull: true
+        },
+        mealTypes: {
+            type: DataTypes.JSON,
+            allowNull: false,
+            defaultValue: ['LUNCH']
         },
         notes: {
             type: DataTypes.STRING,

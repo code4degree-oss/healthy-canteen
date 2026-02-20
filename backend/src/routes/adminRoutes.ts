@@ -5,7 +5,8 @@ import * as adminController from '../controllers/adminController';
 import {
     getAllUsers, createUser, deleteUser,
     getMenu, addMenuItem, updateMenuItem, deleteMenuItem,
-    getAddOns, addAddOn, deleteAddOn, updateSubscription, updateAddOn
+    getAddOns, addAddOn, deleteAddOn, updateSubscription, updateAddOn,
+    getAdminStats
 } from '../controllers/adminController';
 
 const router = express.Router();
@@ -31,12 +32,14 @@ router.use(authenticateToken);
 // Let's stick to: Users need Admin. Menu Modification needs Admin.
 
 // STATS
-router.get('/stats', isAdmin, adminController.getAdminStats);
+router.get('/stats', authenticateToken, isAdmin, getAdminStats);
+// router.get('/stats', authenticateJWT, isAdmin, getAdminStats);
 
 // USERS
 router.get('/users', isAdmin, getAllUsers);
 router.post('/users', isAdmin, createUser);
 router.delete('/users/:id', isAdmin, deleteUser);
+router.put('/users/:id', adminController.updateUser);
 
 // MENU (Public READ, Admin WRITE)
 router.get('/menu', getMenu); // Anyone can read menu
@@ -56,5 +59,8 @@ router.put('/subscriptions/:id', isAdmin, updateSubscription);
 router.get('/delivery-partners', adminController.getDeliveryPartners);
 router.post('/assign-delivery', adminController.assignDelivery);
 router.post('/mark-ready', adminController.markReady);
+
+
+router.get('/delivery-history', isAdmin, adminController.getDeliveryHistory);
 
 export default router;

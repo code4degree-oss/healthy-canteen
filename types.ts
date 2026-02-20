@@ -74,6 +74,19 @@ export interface UserSubscription {
   addons: Record<string, AddOnSelection> | AddOnSelection[]; // Backend uses JSONB, might be object or array
   pausesRemaining: number;
   deliveryAddress: string;
+  deliveryLogs?: DeliveryLog[];
+}
+
+export interface DeliveryLog {
+  id: number;
+  subscriptionId: number;
+  deliveryTime: string; // ISO date string
+  status: 'PENDING' | 'ASSIGNED' | 'OUT_FOR_DELIVERY' | 'DELIVERED' | 'CANCELLED';
+  userId?: number; // Rider ID
+  deliveryAgent?: { // Populated rider details
+    name: string;
+    phone: string;
+  };
 }
 
 // Fixed backend types often use number IDs

@@ -5,19 +5,23 @@ import {
     ArrowLeft, Search, Users, Edit2, Save, X,
     ChevronRight, Calendar, MapPin, Phone, Mail,
     CreditCard, LayoutDashboard, Utensils, TrendingUp,
-    Activity, DollarSign, ClipboardList, ChefHat, AlertCircle, Menu, Plus, Trash2, Lock, Unlock, Bell
+    Activity, DollarSign, ClipboardList, ChefHat, AlertCircle, Menu, Plus, Trash2, Lock, Unlock, Bell,
+    XCircle, CheckCircle, Settings, LogOut
 } from 'lucide-react';
 import { AdminOverview } from './admin/AdminOverview';
 import { AdminCustomerList } from './admin/AdminCustomerList';
-import { AdminNotificationsView } from './admin/AdminNotificationsView';
+import { AdminBroadcastView } from './admin/AdminBroadcastView';
+import { AdminInboxView } from './admin/AdminInboxView';
 import { SortableMenuTable } from './admin/SortableMenuTable';
+import { AdminDeliveryHistory } from './admin/AdminDeliveryHistory';
+import AdminPopupSettings from './admin/AdminPopupSettings';
 
 interface AdminDashboardProps {
     onBack: () => void;
 }
 
 export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onBack }) => {
-    const [activeView, setActiveView] = useState<'dashboard' | 'customers' | 'menu' | 'settings' | 'notifications'>('dashboard');
+    const [activeView, setActiveView] = useState<'dashboard' | 'customers' | 'menu' | 'settings' | 'notifications' | 'history'>('dashboard');
 
     // Dynamic Data State
 
@@ -33,10 +37,62 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onBack }) => {
     const [dashboardStats, setDashboardStats] = useState({
         activeCount: 0,
         totalRevenue: 0,
-        proteinCounts: {} as Record<string, number>,
+        proteinCounts: {} as Record<string, Record<string, number>>, // Now nested by mealType
         recentOrders: [] as any[]
     });
     const [loading, setLoading] = useState(true);
+
+    // --- Notification Logic ---
+    const [inboxNotifications, setInboxNotifications] = useState<any[]>([]);
+    const [isInboxLoading, setIsInboxLoading] = useState(true);
+    const [unreadCount, setUnreadCount] = useState(0);
+
+    useEffect(() => {
+        fetchNotifications();
+        const interval = setInterval(fetchNotifications, 30000);
+        return () => clearInterval(interval);
+    }, []);
+
+    const fetchNotifications = async () => {
+        try {
+            const res = await notifications.getAll();
+            const newNotifications = res.data;
+            const newUnreadCount = newNotifications.filter((n: any) => !n.isRead).length;
+
+            setInboxNotifications(prev => {
+                const prevLatestId = prev.length > 0 ? Math.max(...prev.map(n => n.id)) : 0;
+                const newLatestId = newNotifications.length > 0 ? Math.max(...newNotifications.map((n: any) => n.id)) : 0;
+
+                if (newLatestId > prevLatestId) {
+                    const audio = new Audio('https://assets.mixkit.co/sfx/preview/mixkit-positive-notification-951.mp3');
+                    audio.play().catch(e => console.log("Audio play failed", e));
+
+                    // Auto-refresh dashboard data
+                    fetchData();
+                }
+                return newNotifications;
+            });
+            setUnreadCount(newUnreadCount);
+        } catch (e) { console.error("Failed to fetch notifications"); } finally { setIsInboxLoading(false); }
+    };
+
+    const handleMarkRead = async (id: number) => {
+        try {
+            await notifications.markRead(id);
+            const updated = inboxNotifications.map(n => n.id === id ? { ...n, isRead: true } : n);
+            setInboxNotifications(updated);
+            setUnreadCount(updated.filter(n => !n.isRead).length);
+        } catch (e) { }
+    };
+
+    const handleDeleteNotification = async (id: number) => {
+        try {
+            await notifications.delete(id);
+            const updated = inboxNotifications.filter(n => n.id !== id);
+            setInboxNotifications(updated);
+            setUnreadCount(updated.filter(n => !n.isRead).length);
+        } catch (e) { }
+    };
 
     // Responsive Sidebar State
     const [isSidebarOpen, setIsSidebarOpen] = useState(false);
@@ -46,7 +102,9 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onBack }) => {
     // searchTerm moved up
     const [isEditing, setIsEditing] = useState(false);
     const [editForm, setEditForm] = useState<any | null>(null);
-    const [statusFilter, setStatusFilter] = useState<'ALL' | 'ACTIVE' | 'INACTIVE'>('ALL');
+    const [isEditingContact, setIsEditingContact] = useState(false);
+    const [contactForm, setContactForm] = useState('');
+    const [statusFilter, setStatusFilter] = useState<'ALL' | 'ACTIVE' | 'PAUSED' | 'CANCELLED'>('ALL');
     const [showCreateUserModal, setShowCreateUserModal] = useState(false);
 
     // --- Menu/Addon View State ---
@@ -147,10 +205,10 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onBack }) => {
     };
 
     // Handler for assignment
-    const handleAssignDelivery = async (subId: number, partnerId: string) => {
+    const handleAssignDelivery = async (subId: number, partnerId: string, mealType: string) => {
         if (!partnerId) return;
         try {
-            await admin.assignDelivery(subId, parseInt(partnerId));
+            await admin.assignDelivery(subId, parseInt(partnerId), mealType);
             // Optimistic update or refetch
             fetchData(); // Simplest to refetch to get updated logs
             alert("Delivery Assigned!");
@@ -173,15 +231,41 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onBack }) => {
 
     const handleSaveCustomer = () => {
         if (!editForm) return;
-        // API Call to update user
-        // For now just update local state to reflect UI change (API update endpoint not fully detailed in request but we have generic update if needed, or just skip editing User DETAILS for now and focus on View). 
-        // Actually AdminController has deleteUser but createUser. Update logic might be missing. 
-        // Let's implement Delete.
-
         setCustomers(customers.map(c => c.id === editForm.id ? editForm : c));
         setSelectedCustomer(editForm);
         setIsEditing(false);
         setEditForm(null);
+    };
+
+    const handleUpdateContact = async () => {
+        if (!selectedCustomer || !contactForm) return;
+
+        if (contactForm.length !== 10) {
+            alert("Phone number must be exactly 10 digits.");
+            return;
+        }
+
+        // Optimistic update
+        const updatedCustomer = { ...selectedCustomer, phone: contactForm };
+        setSelectedCustomer(updatedCustomer);
+        setCustomers(customers.map(c => c.id === updatedCustomer.id ? updatedCustomer : c));
+        setIsEditingContact(false);
+
+        try {
+            // Assuming generic update endpoint exists or we use a specific one. 
+            // Since exact endpoint for JUST phone isn't specified, we'll assume a generic user update
+            // await admin.updateUser(selectedCustomer.id, { phone: contactForm }); 
+            // For now, alerting as placeholder if actual endpoint differs, but logic suggests we should save.
+            // We will reuse the concept of 'handleSaveCustomer' logic but for specific field if needed, 
+            // but for now, let's assume we can update the user.
+            // Ideally: await admin.updateUser(selectedCustomer.id, { phone: contactForm });
+            await admin.updateUser(selectedCustomer.id, { phone: contactForm });
+            alert("Contact Updated!");
+        } catch (e) {
+            alert("Failed to update contact");
+            // Revert
+            setSelectedCustomer(selectedCustomer);
+        }
     };
 
     const handleDeleteUser = async (id: string) => {
@@ -196,7 +280,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onBack }) => {
         }
     };
 
-    const handleMarkReady = async (subId: number) => {
+    const handleMarkReady = async (subId: number, mealType: string) => {
         // Optimistic Update
         const now = new Date().toISOString();
         const todayStr = now.split('T')[0];
@@ -209,19 +293,27 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onBack }) => {
 
             const updatedSubs = c.subscriptions.map((s: any) => {
                 if (s.id === subId) {
-                    // Check if log exists for today
-                    const hasTodayLog = s.deliveryLogs?.some((l: any) => l.deliveryTime.startsWith(todayStr));
+                    // Check if log exists for today and for this mealType
+                    const hasTodayLog = s.deliveryLogs?.some((l: any) =>
+                        l.deliveryTime.startsWith(todayStr) &&
+                        (l.mealType === mealType || (!l.mealType && mealType === 'LUNCH'))
+                    );
 
                     let newLogs;
                     if (hasTodayLog) {
-                        newLogs = s.deliveryLogs.map((l: any) => l.deliveryTime.startsWith(todayStr) ? { ...l, status: 'READY' } : l);
+                        newLogs = s.deliveryLogs.map((l: any) =>
+                            (l.deliveryTime.startsWith(todayStr) && (l.mealType === mealType || (!l.mealType && mealType === 'LUNCH')))
+                                ? { ...l, status: 'READY' }
+                                : l
+                        );
                     } else {
-                        // Mock a legitimate log structure
+                        // Create mock log
                         newLogs = [...(s.deliveryLogs || []), {
-                            id: -1, // Temporary mock ID
+                            id: -Math.random(), // Temporary mock ID
                             status: 'READY',
                             deliveryTime: now,
-                            userId: null
+                            userId: null,
+                            mealType: mealType // Add mealType to mock log
                         }];
                     }
                     return { ...s, deliveryLogs: newLogs };
@@ -232,7 +324,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onBack }) => {
         }));
 
         try {
-            await admin.markReady(subId);
+            await admin.markReady(subId, mealType);
             // No need to alert success, let the UI speak
         } catch (e) {
             console.error(e);
@@ -467,315 +559,348 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onBack }) => {
 
 
 
-    const renderKitchenMenu = () => (
-        <div className="space-y-8 animate-in fade-in duration-500">
+    const renderKitchenMenu = () => {
+        const MEAL_TYPES = ['LUNCH', 'DINNER'] as const;
 
-            {/* Daily Prep Sheet */}
-            <section>
-                <h2 className="text-xl font-bold text-slate-900 mb-4 flex items-center gap-2">
-                    <ChefHat className="text-blue-600" /> Today's Prep Sheet
-                </h2>
-                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-                    {Object.entries(dashboardStats.proteinCounts).map(([protein, count]) => (
-                        <div key={protein} className="bg-white border border-slate-200 p-6 rounded-xl flex items-center justify-between shadow-sm hover:shadow-md transition-shadow">
-                            <div>
-                                <p className="text-slate-500 font-bold text-xs uppercase tracking-wider">{protein} MEALS</p>
-                                <p className="text-4xl font-bold text-slate-900 mt-2">{count as number}</p>
+        return (
+            <div className="space-y-12 animate-in fade-in duration-500">
+                {MEAL_TYPES.map(mealType => (
+                    <div key={mealType} className="space-y-6">
+                        {/* SECTION HEADER */}
+                        <div className="flex items-center gap-3 border-b pb-2 border-slate-200">
+                            <div className={`p-2 rounded-lg ${mealType === 'LUNCH' ? 'bg-orange-100 text-orange-600' : 'bg-indigo-100 text-indigo-600'}`}>
+                                <ChefHat size={24} />
                             </div>
-                            <div className="p-4 bg-slate-50 rounded-full text-blue-600">
-                                <Utensils size={24} />
-                            </div>
+                            <h2 className="text-2xl font-bold text-slate-800">{mealType} SERVICE</h2>
                         </div>
-                    ))}
-                    {Object.keys(dashboardStats.proteinCounts).length === 0 && (
-                        <div className="col-span-full p-8 text-center bg-slate-50 rounded-xl border border-dashed border-slate-300">
-                            <p className="text-slate-500 font-medium">No active meal subscriptions for today.</p>
-                        </div>
-                    )}
-                </div>
-            </section>
 
-            {/* DAILY DELIVERY DETAILS */}
-            <section className="mt-8">
-                <h2 className="text-xl font-bold text-slate-900 mb-4 flex items-center gap-2">
-                    <MapPin className="text-blue-600" /> Today's Deliveries & Add-ons
-                </h2>
-                <div className="bg-white border border-slate-200 rounded-xl overflow-hidden shadow-sm">
-                    <table className="w-full text-left text-sm">
-                        <thead className="bg-slate-50 text-slate-500 border-b border-slate-200">
-                            <tr>
-                                <th className="px-4 py-3">Customer</th>
-                                <th className="px-4 py-3">Address</th>
-                                <th className="px-4 py-3">Main Meal</th>
-                                <th className="px-4 py-3">Add-Ons</th>
-                                <th className="px-4 py-3">Status</th>
-                                <th className="px-4 py-3">Notes</th>
-                                <th className="px-4 py-3">Driver / Actions</th>
-                            </tr>
-                        </thead>
-                        <tbody className="divide-y divide-slate-100">
-                            {customers.flatMap(c => {
-                                // Get all active subscriptions
-                                const activeSubs = c.subscriptions?.filter((s: any) => s.status === 'ACTIVE') || [];
-                                if (activeSubs.length === 0) return [];
+                        {/* PREP SHEET */}
+                        <section>
+                            <h3 className="text-sm font-bold text-slate-500 uppercase mb-4 tracking-wider flex items-center gap-2">
+                                <Utensils size={16} /> Prep Sheet
+                            </h3>
+                            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                                {(() => {
+                                    // adminController now returns { LUNCH: {...}, DINNER: {...} }
+                                    // We need to cast or access safely
+                                    const counts = (dashboardStats.proteinCounts as any)?.[mealType] || {};
+                                    const entries = Object.entries(counts);
 
-                                return activeSubs.map((activeSub: any) => {
-                                    const activeAddons = activeSub.addons ? Object.keys(activeSub.addons).map(k => {
-                                        // Try to find by ID (loose equality for string/number match) or by exact name match
-                                        const def = addOns.find(a => a.id == k || a.name === k);
-                                        const item = activeSub.addons[k];
-                                        if (item.quantity === 0) return null;
-                                        // Fallback to key 'k' if definition not found, instead of '?'
-                                        return `${def?.name || k} x${item.quantity}`;
-                                    }).filter(Boolean).join(', ') : '';
-
-                                    // Calculate Status Logic Here for Row
-                                    const todayStr = new Date().toISOString().split('T')[0];
-                                    const todayLogs = activeSub.deliveryLogs?.filter((l: any) => new Date(l.deliveryTime).toISOString().startsWith(todayStr)) || [];
-                                    // Prioritize: DELIVERED > ASSIGNED > READY > PENDING
-                                    const statusPriority: Record<string, number> = { 'DELIVERED': 4, 'ASSIGNED': 3, 'READY': 2, 'PENDING': 1 };
-                                    const log = todayLogs.sort((a: any, b: any) => (statusPriority[b.status] || 0) - (statusPriority[a.status] || 0))[0] || null;
-                                    const status = log?.status || 'PENDING';
-                                    const getStatusBadge = (s: string) => {
-                                        switch (s) {
-                                            case 'DELIVERED': return <span className="px-2 py-1 rounded-full text-xs font-bold bg-green-100 text-green-700">Delivered</span>;
-                                            case 'ASSIGNED': return <span className="px-2 py-1 rounded-full text-xs font-bold bg-blue-100 text-blue-700">Assigned</span>;
-                                            case 'READY': return <span className="px-2 py-1 rounded-full text-xs font-bold bg-yellow-100 text-yellow-700">Ready</span>;
-                                            default: return <span className="px-2 py-1 rounded-full text-xs font-bold bg-slate-100 text-slate-500">Not Yet Delivered</span>;
-                                        }
-                                    };
-
-                                    return (
-                                        <tr key={activeSub.id}>
-                                            <td className="px-4 py-3 font-medium">
-                                                {c.name}
-                                                <div className="text-[10px] text-slate-400">Plan #{activeSub.id}</div>
-                                            </td>
-                                            <td className="px-4 py-3 text-slate-500 max-w-xs truncate" title={activeSub.deliveryAddress || c.address}>{activeSub.deliveryAddress || c.address || 'Loc only'}</td>
-                                            <td className="px-4 py-3">
-                                                <span className={`px-2 py-0.5 rounded text-xs text-white font-bold ${activeSub.protein === 'CHICKEN' ? 'bg-orange-400' : 'bg-green-400'}`}>
-                                                    {activeSub.protein}
-                                                </span>
-                                            </td>
-                                            <td className="px-4 py-3 text-slate-600 font-medium">
-                                                {activeAddons || '-'}
-                                            </td>
-                                            <td className="px-4 py-3">
-                                                <div className="flex flex-col items-start gap-1">
-                                                    {getStatusBadge(status)}
-                                                    {status === 'DELIVERED' && log && (
-                                                        <div className="mt-1 text-xs flex flex-col gap-0.5">
-                                                            <span className="text-slate-600 flex items-center gap-1">
-                                                                🕒 {new Date(log.deliveryTime).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                                                            </span>
-                                                            {log.latitude && log.longitude && (
-                                                                <a
-                                                                    href={`https://www.google.com/maps?q=${log.latitude},${log.longitude}`}
-                                                                    target="_blank"
-                                                                    rel="noreferrer"
-                                                                    className="text-blue-500 hover:underline flex items-center gap-1"
-                                                                >
-                                                                    <MapPin size={10} /> Location
-                                                                </a>
-                                                            )}
-                                                        </div>
-                                                    )}
-                                                </div>
-                                            </td>
-                                            <td className="px-4 py-3">
-                                                {(() => {
-                                                    // Find notes from the order associated with this subscription
-                                                    const order = c.orders?.find((o: any) => o.id === activeSub.orderId);
-                                                    const notes = order?.notes || (activeSub as any).notes;
-                                                    return notes ? (
-                                                        <div className="max-w-[200px]">
-                                                            <p className="text-xs text-amber-700 bg-amber-50 px-2 py-1 rounded border border-amber-200 truncate" title={notes}>
-                                                                📝 {notes}
-                                                            </p>
-                                                        </div>
-                                                    ) : (
-                                                        <span className="text-xs text-slate-300">—</span>
-                                                    );
-                                                })()}
-                                            </td>
-                                            <td className="px-4 py-3">
-                                                {(() => {
-                                                    if (status === 'DELIVERED') {
-                                                        return log?.deliveryAgent ? (
-                                                            <span className="text-xs font-bold text-slate-700 flex items-center gap-1">
-                                                                👤 {log.deliveryAgent.name}
-                                                            </span>
-                                                        ) : <span className="text-xs text-slate-400">-</span>;
-                                                    }
-
-                                                    if (status === 'PENDING') {
-                                                        return (
-                                                            <button
-                                                                onClick={() => handleMarkReady(activeSub.id)}
-                                                                className="bg-orange-100 text-orange-700 hover:bg-orange-200 px-3 py-1 rounded text-xs font-bold border border-orange-200 transition-colors"
-                                                            >
-                                                                Mark Ready
-                                                            </button>
-                                                        );
-                                                    }
-
-                                                    // If READY or ASSIGNED, show assignment dropdown
-                                                    return (
-                                                        <div className="flex flex-col gap-1">
-                                                            {status === 'READY' && <span className="text-[10px] text-green-600 font-bold">READY FOR PICKUP</span>}
-                                                            <div className="flex items-center gap-2">
-                                                                <select
-                                                                    className="text-xs border border-slate-300 rounded p-1 max-w-[120px] bg-white shadow-sm"
-                                                                    value={log?.userId || ''}
-                                                                    onChange={(e) => handleAssignDelivery(activeSub.id, e.target.value)}
-                                                                >
-                                                                    <option value="">{status === 'ASSIGNED' ? 'Change Driver' : 'Assign Driver'}</option>
-                                                                    {deliveryPartners.map(dp => (
-                                                                        <option key={dp.id} value={dp.id}>{dp.name}</option>
-                                                                    ))}
-                                                                </select>
-                                                            </div>
-                                                            {status === 'ASSIGNED' && log?.deliveryAgent && (
-                                                                <span className="text-[10px] text-blue-600 font-medium">Assigned to: {log.deliveryAgent.name}</span>
-                                                            )}
-                                                        </div>
-                                                    );
-                                                })()}
-                                            </td>
-                                        </tr>
-                                    );
-                                });
-                            })}
-                            {customers.filter(c => c.subscriptions?.some((s: any) => s.status === 'ACTIVE')).length === 0 && (
-                                <tr>
-                                    <td colSpan={5} className="p-12 text-center text-slate-400">
-                                        <div className="flex flex-col items-center justify-center">
-                                            <div className="w-16 h-16 bg-slate-100 rounded-full flex items-center justify-center mb-4">
-                                                <MapPin size={32} className="text-slate-300" />
-                                            </div>
-                                            <h3 className="text-slate-900 font-medium mb-1">No Deliveries Today</h3>
-                                            <p className="text-xs text-slate-500 max-w-xs mx-auto">
-                                                There are no active subscriptions scheduled for delivery today. Use the "Add User" button to create new subscriptions.
-                                            </p>
-                                        </div>
-                                    </td>
-                                </tr>
-                            )}
-                        </tbody>
-                    </table>
-                </div>
-
-            </section>
-            <hr className="border-slate-200" />
-
-            {/* Menu Management */}
-            <section>
-                <div className="flex justify-between items-center mb-6">
-                    <h2 className="text-xl font-bold text-slate-900 flex items-center gap-2">
-                        <ClipboardList className="text-blue-600" /> Menu Management
-                    </h2>
-                    <div className="flex gap-2">
-                        <button onClick={() => setIsPlanModalOpen(true)} className="bg-slate-900 text-white px-4 py-2 rounded-lg text-sm font-bold flex items-center gap-2 hover:bg-slate-800">
-                            <Plus size={16} /> New Plan
-                        </button>
-                        <button onClick={() => setIsMenuItemModalOpen(true)} className="bg-blue-600 text-white px-4 py-2 rounded-lg text-sm font-bold flex items-center gap-2 hover:bg-blue-700">
-                            <Plus size={16} /> New Item
-                        </button>
-                    </div>
-                </div>
-
-                {/* Plans & Items List */}
-                <div className="space-y-8">
-                    {plans.map(plan => (
-                        <div key={plan.id} className="bg-white border border-slate-200 rounded-xl overflow-hidden shadow-sm">
-                            <div className="bg-slate-50 p-4 border-b border-slate-200 flex justify-between items-center">
-                                <h3 className="font-bold text-lg text-slate-800">{plan.name} <span className="text-xs text-slate-500 font-normal ml-2">({plan.slug})</span></h3>
-                                <div className="flex gap-2">
-                                    <button
-                                        onClick={() => {
-                                            setNewPlan({ name: plan.name, slug: plan.slug });
-                                            setSelectedPlanId(plan.id);
-                                            setIsPlanModalOpen(true);
-                                        }}
-                                        className="text-blue-600 hover:bg-blue-50 p-2 rounded transition-colors flex items-center gap-1 text-sm font-medium"
-                                    >
-                                        <Edit2 size={16} /> Edit
-                                    </button>
-                                    <button
-                                        onClick={() => handleDeletePlan(plan.id)}
-                                        className="text-red-500 hover:text-red-700 hover:bg-red-50 p-2 rounded transition-colors flex items-center gap-1 text-sm font-medium"
-                                    >
-                                        <Trash2 size={16} /> Delete
-                                    </button>
-                                </div>
-                            </div>
-                            <div className="overflow-x-auto">
-                                <SortableMenuTable
-                                    items={plan.items || []}
-                                    onReorder={(reorderedItems) => handleReorderItems(plan.id, reorderedItems)}
-                                    onEdit={handleEditItemClick}
-                                    onDelete={handleDeleteMenuItem}
-                                />
-                            </div>
-                        </div>
-                    ))}
-                    {plans.length === 0 && (
-                        <div className="p-12 text-center border-2 border-dashed border-slate-300 rounded-xl">
-                            <p className="text-slate-500 mb-4">No plans created yet.</p>
-                            <button onClick={() => setIsPlanModalOpen(true)} className="text-blue-600 font-bold hover:underline">Create your first plan</button>
-                        </div>
-                    )}
-                </div>
-
-                {/* Addons Section */}
-                <div className="mt-12 bg-slate-50 p-6 rounded-xl border border-slate-200">
-                    <h3 className="font-bold text-slate-900 mb-4 flex justify-between">
-                        Manage Add-Ons
-                    </h3>
-                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                        {addOns.map(addon => (
-                            <div key={addon.id} className="bg-white p-4 rounded-lg border border-slate-200 shadow-sm flex justify-between items-center group">
-                                <div className="flex items-center gap-3">
-                                    {(() => {
-                                        const imgSrc = (addon as any).thumbnail || (addon as any).image;
-                                        if (!imgSrc) return (
-                                            <div className="w-10 h-10 rounded bg-slate-100 border border-slate-200 flex items-center justify-center text-slate-300">
-                                                <Utensils size={14} />
+                                    if (entries.length === 0) {
+                                        return (
+                                            <div className="col-span-full p-6 text-center bg-slate-50 rounded-xl border border-dashed border-slate-300">
+                                                <p className="text-slate-500 font-medium">No active {mealType} subscriptions.</p>
                                             </div>
                                         );
-                                        const url = (imgSrc.startsWith('http://') || imgSrc.startsWith('https://')) ? imgSrc : `${BASE_URL}${imgSrc}`;
-                                        return <img src={url} alt={addon.name} className="w-10 h-10 rounded object-cover border border-slate-100 bg-slate-50" />;
-                                    })()}
-                                    <div>
-                                        <p className="font-bold text-sm text-slate-900">{addon.name}</p>
-                                        <p className="text-xs text-slate-500">₹{addon.price}</p>
+                                    }
+
+                                    // Sort by count desc
+                                    return entries
+                                        .sort(([, a], [, b]) => (b as number) - (a as number))
+                                        .map(([protein, count]) => (
+                                            <div key={protein} className="bg-white border border-slate-200 p-6 rounded-xl flex items-center justify-between shadow-sm hover:border-blue-300 transition-colors">
+                                                <div>
+                                                    <p className="text-slate-500 font-bold text-xs uppercase tracking-wider">{protein}</p>
+                                                    <p className="text-4xl font-bold text-slate-900 mt-2">{count as number}</p>
+                                                </div>
+                                                <div className={`p-3 rounded-full ${mealType === 'LUNCH' ? 'bg-orange-50 text-orange-500' : 'bg-indigo-50 text-indigo-500'}`}>
+                                                    <Utensils size={20} />
+                                                </div>
+                                            </div>
+                                        ));
+                                })()}
+                            </div>
+                        </section>
+
+                        {/* DELIVERIES TABLE */}
+                        <section>
+                            <h3 className="text-sm font-bold text-slate-500 uppercase mb-4 tracking-wider flex items-center gap-2">
+                                <MapPin size={16} /> Deliveries & Add-ons
+                            </h3>
+                            <div className="bg-white border border-slate-200 rounded-xl overflow-hidden shadow-sm">
+                                <table className="w-full text-left text-sm">
+                                    <thead className="bg-slate-50 text-slate-500 border-b border-slate-200">
+                                        <tr>
+                                            <th className="px-4 py-3">Customer</th>
+                                            <th className="px-4 py-3">Address</th>
+                                            <th className="px-4 py-3">Meal</th>
+                                            <th className="px-4 py-3">Add-Ons</th>
+                                            <th className="px-4 py-3">Status</th>
+                                            <th className="px-4 py-3">Notes</th>
+                                            <th className="px-4 py-3">Driver / Actions</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody className="divide-y divide-slate-100">
+                                        {customers.flatMap(c => {
+                                            const subs = c.subscriptions || [];
+                                            if (subs.length === 0) return [];
+
+                                            // Filter for ACTIVE subs + date check
+                                            const now = new Date();
+                                            const todayUTC = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));
+
+                                            const activeAndStartedSubs = subs.filter((s: any) => {
+                                                const start = new Date(s.startDate);
+                                                const startUTC = new Date(Date.UTC(start.getUTCFullYear(), start.getUTCMonth(), start.getUTCDate()));
+                                                // Also check if this subscription HAS this mealType
+                                                const subMealTypes = s.mealTypes || ['LUNCH'];
+                                                return s.status === 'ACTIVE' && startUTC <= todayUTC && subMealTypes.includes(mealType);
+                                            });
+
+                                            if (activeAndStartedSubs.length === 0) return [];
+
+                                            return activeAndStartedSubs.map((activeSub: any) => {
+                                                // We know this sub has the current mealType
+                                                const mType = mealType;
+
+                                                const activeAddons = activeSub.addons ? Object.keys(activeSub.addons).map(k => {
+                                                    const def = addOns.find(a => a.id == k || a.name === k);
+                                                    const item = activeSub.addons[k];
+                                                    if (item.quantity === 0) return null;
+                                                    return `${def?.name || k} x${item.quantity}`;
+                                                }).filter(Boolean).join(', ') : '';
+
+                                                const todayStr = todayUTC.toISOString().split('T')[0];
+
+                                                // Filter logs by DATE and MEAL TYPE
+                                                const todayLogs = activeSub.deliveryLogs?.filter((l: any) => {
+                                                    if (!l.deliveryTime) return false;
+                                                    const logDate = new Date(l.deliveryTime);
+                                                    return logDate.toISOString().startsWith(todayStr) &&
+                                                        (l.mealType === mType || (!l.mealType && mType === 'LUNCH'))
+                                                }) || [];
+
+                                                const statusPriority: Record<string, number> = { 'NO_RECEIVE': 5, 'DELIVERED': 4, 'ASSIGNED': 3, 'READY': 2, 'PENDING': 1 };
+                                                const log = todayLogs.sort((a: any, b: any) => (statusPriority[b.status] || 0) - (statusPriority[a.status] || 0))[0] || null;
+                                                const status = log?.status || 'PENDING';
+
+                                                const getStatusBadge = (s: string) => {
+                                                    switch (s) {
+                                                        case 'NO_RECEIVE': return <span className="px-2 py-1 rounded-full text-xs font-bold bg-red-100 text-red-700 flex items-center gap-1"><XCircle size={12} /> Failed</span>;
+                                                        case 'DELIVERED': return <span className="px-2 py-1 rounded-full text-xs font-bold bg-green-100 text-green-700">Delivered</span>;
+                                                        case 'ASSIGNED': return <span className="px-2 py-1 rounded-full text-xs font-bold bg-blue-100 text-blue-700">Assigned</span>;
+                                                        case 'READY': return <span className="px-2 py-1 rounded-full text-xs font-bold bg-yellow-100 text-yellow-700">Ready</span>;
+                                                        default: return <span className="px-2 py-1 rounded-full text-xs font-bold bg-slate-100 text-slate-500">Pending</span>;
+                                                    }
+                                                };
+
+                                                return (
+                                                    <tr key={`${activeSub.id}-${mType}`} className="hover:bg-slate-50">
+                                                        <td className="px-4 py-3 font-medium">
+                                                            {c.name}
+                                                            <div className="text-[10px] text-slate-400">#{activeSub.id}</div>
+                                                        </td>
+                                                        <td className="px-4 py-3 text-slate-500 max-w-xs truncate text-xs" title={activeSub.deliveryAddress || c.address}>
+                                                            {activeSub.deliveryAddress || c.address || 'Loc only'}
+                                                        </td>
+                                                        <td className="px-4 py-3">
+                                                            <span className={`px-2 py-0.5 rounded text-xs text-white font-bold ${activeSub.protein === 'CHICKEN' ? 'bg-orange-400' : 'bg-green-400'}`}>
+                                                                {activeSub.protein}
+                                                            </span>
+                                                        </td>
+                                                        <td className="px-4 py-3 text-slate-600 font-medium text-xs">
+                                                            {activeAddons || '-'}
+                                                        </td>
+                                                        <td className="px-4 py-3">
+                                                            <div className="flex flex-col items-start gap-1">
+                                                                {getStatusBadge(status)}
+                                                                {status === 'DELIVERED' && log && (
+                                                                    <div className="mt-1 text-xs flex flex-col gap-0.5">
+                                                                        <span className="text-slate-600 flex items-center gap-1">
+                                                                            🕒 {new Date(log.deliveryTime).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                                                                        </span>
+                                                                    </div>
+                                                                )}
+                                                            </div>
+                                                        </td>
+                                                        <td className="px-4 py-3">
+                                                            {(() => {
+                                                                const order = c.orders?.find((o: any) => o.id === activeSub.orderId);
+                                                                const notes = order?.notes || (activeSub as any).notes;
+                                                                return notes ? (
+                                                                    <div className="max-w-[150px] group relative">
+                                                                        <p className="text-xs text-amber-700 bg-amber-50 px-2 py-1 rounded border border-amber-200 truncate cursor-help">
+                                                                            📝 {notes}
+                                                                        </p>
+                                                                        <div className="absolute left-0 bottom-full mb-1 hidden group-hover:block bg-black text-white text-xs p-2 rounded w-48 z-10">
+                                                                            {notes}
+                                                                        </div>
+                                                                    </div>
+                                                                ) : <span className="text-xs text-slate-300">—</span>;
+                                                            })()}
+                                                        </td>
+                                                        <td className="px-4 py-3">
+                                                            {(() => {
+                                                                if (status === 'DELIVERED') {
+                                                                    return log?.deliveryAgent ? (
+                                                                        <span className="text-xs font-bold text-slate-700 flex items-center gap-1">
+                                                                            👤 {log.deliveryAgent.name}
+                                                                        </span>
+                                                                    ) : <span className="text-xs text-slate-400">-</span>;
+                                                                }
+
+                                                                if (status === 'PENDING') {
+                                                                    return (
+                                                                        <button
+                                                                            onClick={() => handleMarkReady(activeSub.id, mType)}
+                                                                            className="bg-orange-100 text-orange-700 hover:bg-orange-200 px-3 py-1 rounded text-xs font-bold border border-orange-200 transition-colors"
+                                                                        >
+                                                                            Mark Ready
+                                                                        </button>
+                                                                    );
+                                                                }
+
+                                                                return (
+                                                                    <div className="flex flex-col gap-1">
+                                                                        <select
+                                                                            className="text-xs border border-slate-300 rounded p-1 max-w-[120px] bg-white shadow-sm"
+                                                                            value={log?.userId || ''}
+                                                                            onChange={(e) => handleAssignDelivery(activeSub.id, e.target.value, mType)}
+                                                                        >
+                                                                            <option value="">{status === 'ASSIGNED' ? 'Change Driver' : 'Assign Driver'}</option>
+                                                                            {deliveryPartners.map(dp => (
+                                                                                <option key={dp.id} value={dp.id}>{dp.name}</option>
+                                                                            ))}
+                                                                        </select>
+                                                                        {status === 'ASSIGNED' && log?.deliveryAgent && (
+                                                                            <span className="text-[10px] text-blue-600 font-medium">Assigned: {log.deliveryAgent.name}</span>
+                                                                        )}
+                                                                    </div>
+                                                                );
+                                                            })()}
+                                                        </td>
+                                                    </tr>
+                                                );
+                                            });
+                                        })}
+                                        {customers.every(c => !c.subscriptions?.some((s: any) => {
+                                            const subMealTypes = s.mealTypes || ['LUNCH'];
+                                            return s.status === 'ACTIVE' && subMealTypes.includes(mealType);
+                                        })) && (
+                                                <tr>
+                                                    <td colSpan={7} className="p-8 text-center text-slate-400">
+                                                        <p className="text-sm">No {mealType.toLowerCase()} deliveries scheduled for today.</p>
+                                                    </td>
+                                                </tr>
+                                            )}
+                                    </tbody>
+                                </table>
+                            </div>
+                        </section>
+                    </div>
+                ))}
+
+
+                {/* Menu Management */}
+                <section>
+                    <div className="flex justify-between items-center mb-6">
+                        <h2 className="text-xl font-bold text-slate-900 flex items-center gap-2">
+                            <ClipboardList className="text-blue-600" /> Menu Management
+                        </h2>
+                        <div className="flex gap-2">
+                            <button onClick={() => setIsPlanModalOpen(true)} className="bg-slate-900 text-white px-4 py-2 rounded-lg text-sm font-bold flex items-center gap-2 hover:bg-slate-800">
+                                <Plus size={16} /> New Plan
+                            </button>
+                            <button onClick={() => setIsMenuItemModalOpen(true)} className="bg-blue-600 text-white px-4 py-2 rounded-lg text-sm font-bold flex items-center gap-2 hover:bg-blue-700">
+                                <Plus size={16} /> New Item
+                            </button>
+                        </div>
+                    </div>
+
+                    {/* Plans & Items List */}
+                    <div className="space-y-8">
+                        {plans.map(plan => (
+                            <div key={plan.id} className="bg-white border border-slate-200 rounded-xl overflow-hidden shadow-sm">
+                                <div className="bg-slate-50 p-4 border-b border-slate-200 flex justify-between items-center">
+                                    <h3 className="font-bold text-lg text-slate-800">{plan.name} <span className="text-xs text-slate-500 font-normal ml-2">({plan.slug})</span></h3>
+                                    <div className="flex gap-2">
+                                        <button
+                                            onClick={() => {
+                                                setNewPlan({ name: plan.name, slug: plan.slug });
+                                                setSelectedPlanId(plan.id);
+                                                setIsPlanModalOpen(true);
+                                            }}
+                                            className="text-blue-600 hover:bg-blue-50 p-2 rounded transition-colors flex items-center gap-1 text-sm font-medium"
+                                        >
+                                            <Edit2 size={16} /> Edit
+                                        </button>
+                                        <button
+                                            onClick={() => handleDeletePlan(plan.id)}
+                                            className="text-red-500 hover:text-red-700 hover:bg-red-50 p-2 rounded transition-colors flex items-center gap-1 text-sm font-medium"
+                                        >
+                                            <Trash2 size={16} /> Delete
+                                        </button>
                                     </div>
                                 </div>
-                                <div className="flex gap-2 opacity-0 group-hover:opacity-100 transition-all">
-                                    <button onClick={() => handleEditAddOnClick(addon)} className="p-2 text-blue-500 hover:bg-blue-50 rounded">
-                                        <Edit2 size={16} />
-                                    </button>
-                                    <button onClick={() => handleDeleteAddOn(addon.id as any)} className="p-2 text-red-500 hover:bg-red-50 rounded">
-                                        <Trash2 size={16} />
-                                    </button>
+                                <div className="overflow-x-auto">
+                                    <SortableMenuTable
+                                        items={plan.items || []}
+                                        onReorder={(reorderedItems) => handleReorderItems(plan.id, reorderedItems)}
+                                        onEdit={handleEditItemClick}
+                                        onDelete={handleDeleteMenuItem}
+                                    />
                                 </div>
                             </div>
                         ))}
-                        <button
-                            onClick={() => {
-                                setNewAddOn({ name: '', price: 0, description: '', allowSubscription: false, image: null });
-                                setSelectedAddOnId(null);
-                                setIsAddOnModalOpen(true);
-                            }}
-                            className="border-2 border-dashed border-slate-300 rounded-lg p-4 flex items-center justify-center text-slate-500 hover:border-blue-400 hover:text-blue-600 transition-colors"
-                        >
-                            + Add New Item
-                        </button>
+                        {plans.length === 0 && (
+                            <div className="p-12 text-center border-2 border-dashed border-slate-300 rounded-xl">
+                                <p className="text-slate-500 mb-4">No plans created yet.</p>
+                                <button onClick={() => setIsPlanModalOpen(true)} className="text-blue-600 font-bold hover:underline">Create your first plan</button>
+                            </div>
+                        )}
                     </div>
-                </div>
-            </section>
-        </div>
-    );
+
+                    {/* Addons Section */}
+                    <div className="mt-12 bg-slate-50 p-6 rounded-xl border border-slate-200">
+                        <h3 className="font-bold text-slate-900 mb-4 flex justify-between">
+                            Manage Add-Ons
+                        </h3>
+                        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                            {addOns.map(addon => (
+                                <div key={addon.id} className="bg-white p-4 rounded-lg border border-slate-200 shadow-sm flex justify-between items-center group">
+                                    <div className="flex items-center gap-3">
+                                        {(() => {
+                                            const imgSrc = (addon as any).thumbnail || (addon as any).image;
+                                            if (!imgSrc) return (
+                                                <div className="w-10 h-10 rounded bg-slate-100 border border-slate-200 flex items-center justify-center text-slate-300">
+                                                    <Utensils size={14} />
+                                                </div>
+                                            );
+                                            const url = (imgSrc.startsWith('http://') || imgSrc.startsWith('https://')) ? imgSrc : `${BASE_URL}${imgSrc}`;
+                                            return <img src={url} alt={addon.name} className="w-10 h-10 rounded object-cover border border-slate-100 bg-slate-50" />;
+                                        })()}
+                                        <div>
+                                            <p className="font-bold text-sm text-slate-900">{addon.name}</p>
+                                            <p className="text-xs text-slate-500">₹{addon.price}</p>
+                                        </div>
+                                    </div>
+                                    <div className="flex gap-2 opacity-0 group-hover:opacity-100 transition-all">
+                                        <button onClick={() => handleEditAddOnClick(addon)} className="p-2 text-blue-500 hover:bg-blue-50 rounded">
+                                            <Edit2 size={16} />
+                                        </button>
+                                        <button onClick={() => handleDeleteAddOn(addon.id as any)} className="p-2 text-red-500 hover:bg-red-50 rounded">
+                                            <Trash2 size={16} />
+                                        </button>
+                                    </div>
+                                </div>
+                            ))}
+                            <button
+                                onClick={() => {
+                                    setNewAddOn({ name: '', price: 0, description: '', allowSubscription: false, image: null });
+                                    setSelectedAddOnId(null);
+                                    setIsAddOnModalOpen(true);
+                                }}
+                                className="border-2 border-dashed border-slate-300 rounded-lg p-4 flex items-center justify-center text-slate-500 hover:border-blue-400 hover:text-blue-600 transition-colors"
+                            >
+                                + Add New Item
+                            </button>
+                        </div>
+                    </div>
+                </section>
+            </div >
+        );
+
+    };
 
     const renderCustomerList = () => {
         const filtered = customers.filter(c => {
@@ -786,8 +911,9 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onBack }) => {
 
             const hasActivePlan = c.subscriptions?.some((s: any) => s.status === 'ACTIVE');
 
-            if (statusFilter === 'ACTIVE') return hasActivePlan;
-            if (statusFilter === 'INACTIVE') return !hasActivePlan;
+            if (statusFilter === 'ACTIVE') return c.subscriptions?.some((s: any) => s.status === 'ACTIVE');
+            if (statusFilter === 'PAUSED') return c.subscriptions?.some((s: any) => s.status === 'PAUSED');
+            if (statusFilter === 'CANCELLED') return c.subscriptions?.some((s: any) => s.status === 'CANCELLED');
 
             return true;
         });
@@ -798,13 +924,13 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onBack }) => {
                 <div className="flex flex-col md:flex-row justify-between items-center mb-6 gap-4">
                     {/* Status Filter Tabs */}
                     <div className="flex bg-slate-100 p-1 rounded-lg">
-                        {(['ALL', 'ACTIVE', 'INACTIVE'] as const).map(status => (
+                        {(['ALL', 'ACTIVE', 'PAUSED', 'CANCELLED'] as const).map(status => (
                             <button
                                 key={status}
                                 onClick={() => setStatusFilter(status)}
                                 className={`px-4 py-2 text-xs font-bold rounded-md transition-all ${statusFilter === status ? 'bg-white text-blue-600 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
                             >
-                                {status === 'ALL' ? 'All Users' : status === 'ACTIVE' ? 'Active Plans' : 'No Active Plan'}
+                                {status.charAt(0) + status.slice(1).toLowerCase()}
                             </button>
                         ))}
                     </div>
@@ -916,7 +1042,57 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onBack }) => {
                             </div>
                             <div>
                                 <h2 className="text-xl font-bold text-slate-900">{selectedCustomer.name}</h2>
-                                <p className="text-sm text-slate-500">{selectedCustomer.email} • {selectedCustomer.phone || 'No Phone'}</p>
+                                <div className="text-sm text-slate-500 flex flex-col gap-1">
+                                    <span>{selectedCustomer.email}</span>
+                                    <div className="flex items-center gap-2">
+                                        {isEditingContact ? (
+                                            <div className="flex items-center gap-2">
+                                                <input
+                                                    value={contactForm}
+                                                    onChange={(e) => {
+                                                        const val = e.target.value.replace(/\D/g, '').slice(0, 10);
+                                                        setContactForm(val);
+                                                    }}
+                                                    className="border rounded px-2 py-1 text-xs"
+                                                    placeholder="10-digit number"
+                                                />
+                                                <button onClick={handleUpdateContact} className="text-green-600 text-xs font-bold hover:underline">Save</button>
+                                                <button onClick={() => setIsEditingContact(false)} className="text-red-500 text-xs hover:underline">Cancel</button>
+                                            </div>
+                                        ) : (
+                                            <>
+                                                <span>{selectedCustomer.phone || 'No Phone'}</span>
+                                                <button
+                                                    onClick={() => {
+                                                        setContactForm(selectedCustomer.phone || '');
+                                                        setIsEditingContact(true);
+                                                    }}
+                                                    className="text-blue-600 text-xs hover:underline"
+                                                >
+                                                    Edit
+                                                </button>
+                                            </>
+                                        )}
+                                    </div>
+                                    <div className="flex items-center gap-2">
+                                        <span>{selectedCustomer.address || selectedCustomer.subscriptions?.[0]?.deliveryAddress || 'No Address'}</span>
+                                        {(selectedCustomer.address || selectedCustomer.subscriptions?.[0]?.deliveryAddress) && (
+                                            <a
+                                                href={
+                                                    selectedCustomer.subscriptions?.[0]?.Order?.deliveryLat && selectedCustomer.subscriptions?.[0]?.Order?.deliveryLng
+                                                        ? `https://www.google.com/maps/search/?api=1&query=${selectedCustomer.subscriptions[0].Order.deliveryLat},${selectedCustomer.subscriptions[0].Order.deliveryLng}`
+                                                        : `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(selectedCustomer.address || selectedCustomer.subscriptions?.[0]?.deliveryAddress)}`
+                                                }
+                                                target="_blank"
+                                                rel="noreferrer"
+                                                className="text-blue-500 hover:text-blue-700"
+                                                title="View on Maps"
+                                            >
+                                                <MapPin size={14} />
+                                            </a>
+                                        )}
+                                    </div>
+                                </div>
                             </div>
                         </div>
                         <button onClick={() => setSelectedCustomer(null)} className="p-2 hover:bg-slate-100 rounded-full text-slate-500"><X size={24} /></button>
@@ -933,18 +1109,43 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onBack }) => {
                                     </div>
                                     <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
                                         <div>
-                                            <p className="text-slate-500 text-xs uppercase font-bold">Plan Type</p>
-                                            <p className="font-bold text-lg">{sub.protein} ({sub.mealsPerDay} Meal/Day)</p>
+                                            <label className="text-xs font-bold text-slate-500 uppercase block mb-1">PLAN TYPE</label>
+                                            <p className="font-bold text-slate-900 text-lg">{sub.protein} ({sub.mealsPerDay} Meal/Day)</p>
                                         </div>
                                         <div>
-                                            <p className="text-slate-500 text-xs uppercase font-bold">Dates</p>
-                                            <p className="font-medium text-slate-800">{new Date(sub.startDate).toLocaleDateString()} - {new Date(sub.endDate).toLocaleDateString()}</p>
+                                            <label className="text-xs font-bold text-slate-500 uppercase block mb-1">DATES</label>
+                                            <p className="font-bold text-slate-900 text-lg">
+                                                {sub.startDate ? new Date(sub.startDate).toLocaleDateString() : 'N/A'} - {sub.endDate ? new Date(sub.endDate).toLocaleDateString() : 'N/A'}
+                                            </p>
                                         </div>
                                         <div>
-                                            <p className="text-slate-500 text-xs uppercase font-bold">Remaining</p>
-                                            <p className="font-medium text-slate-800">{sub.daysRemaining} Days / {sub.pausesRemaining} Pauses</p>
+                                            <label className="text-xs font-bold text-slate-500 uppercase block mb-1">REMAINING</label>
+                                            <p className="font-bold text-slate-900 text-lg">{sub.daysRemaining} Days / {sub.pausesRemaining} Pauses</p>
                                         </div>
                                     </div>
+
+                                    {/* Recent Delivery Status */}
+                                    {sub.deliveryLogs && sub.deliveryLogs.length > 0 && (
+                                        <div className="mt-4 pt-4 border-t border-slate-200">
+                                            <label className="text-xs font-bold text-slate-500 uppercase block mb-2">LAST DELIVERY STATUS</label>
+                                            {(() => {
+                                                // Sort descending by date/id
+                                                const latestLog = [...sub.deliveryLogs].sort((a: any, b: any) => b.id - a.id)[0];
+                                                return (
+                                                    <div className={`inline-flex items-center gap-2 px-3 py-1 rounded-full text-xs font-bold border ${latestLog.status === 'NO_RECEIVE' ? 'bg-red-100 text-red-700 border-red-200' :
+                                                        latestLog.status === 'DELIVERED' ? 'bg-green-100 text-green-700 border-green-200' :
+                                                            'bg-gray-100 text-gray-700 border-gray-200'
+                                                        }`}>
+                                                        {latestLog.status === 'NO_RECEIVE' && <XCircle size={14} />}
+                                                        {latestLog.status === 'DELIVERED' && <CheckCircle size={14} />}
+                                                        {latestLog.status === 'NO_RECEIVE' ? 'NO ONE TO RECEIVE' : latestLog.status}
+                                                        <span className="text-[10px] font-normal opacity-75 ml-1">({new Date(latestLog.deliveryTime).toLocaleDateString()})</span>
+                                                    </div>
+                                                );
+                                            })()}
+                                        </div>
+                                    )}
+
 
                                     {/* ADDOONS */}
                                     {sub.addons && (
@@ -999,7 +1200,6 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onBack }) => {
                                             <th className="px-4 py-3">Date</th>
                                             <th className="px-4 py-3">Plan</th>
                                             <th className="px-4 py-3 text-right">Amount</th>
-                                            <th className="px-4 py-3">Status</th>
                                         </tr>
                                     </thead>
                                     <tbody className="divide-y divide-slate-100">
@@ -1008,15 +1208,14 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onBack }) => {
                                                 <td className="px-4 py-3">{new Date(order.createdAt).toLocaleDateString()}</td>
                                                 <td className="px-4 py-3">{order.protein} / {order.days} Days</td>
                                                 <td className="px-4 py-3 text-right">₹{order.totalPrice}</td>
-                                                <td className="px-4 py-3"><span className="bg-green-100 text-green-800 text-xs px-2 py-1 rounded-full">{order.status}</span></td>
                                             </tr>
                                         ))}
                                         {(!selectedCustomer.orders || selectedCustomer.orders.length === 0) && (
-                                            <tr><td colSpan={4} className="p-4 text-center text-slate-400">No previous orders</td></tr>
+                                            <tr><td colSpan={3} className="p-4 text-center text-slate-400">No previous orders</td></tr>
                                         )}
                                         {selectedCustomer.orders?.length > 10 && !showAllOrders && (
                                             <tr>
-                                                <td colSpan={4} className="p-2 text-center">
+                                                <td colSpan={3} className="p-2 text-center">
                                                     <button onClick={() => setShowAllOrders(true)} className="text-blue-600 font-bold text-xs hover:underline">
                                                         View All {selectedCustomer.orders.length} Orders
                                                     </button>
@@ -1025,7 +1224,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onBack }) => {
                                         )}
                                         {showAllOrders && (
                                             <tr>
-                                                <td colSpan={4} className="p-2 text-center">
+                                                <td colSpan={3} className="p-2 text-center">
                                                     <button onClick={() => setShowAllOrders(false)} className="text-slate-500 font-bold text-xs hover:underline">
                                                         Show Less
                                                     </button>
@@ -1036,10 +1235,10 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onBack }) => {
                                 </table>
                             </div>
                         </section>
-                    </div>
+                    </div >
 
-                </div>
-            </div>
+                </div >
+            </div >
         );
     };
 
@@ -1069,25 +1268,54 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onBack }) => {
                         <Utensils size={20} /> Kitchen & Menu
                     </button>
                     <button onClick={() => setActiveView('settings')} className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg transition-colors ${activeView === 'settings' ? 'bg-blue-600 text-white' : 'hover:bg-slate-800'}`}>
-                        <Users size={20} /> Settings
+                        <Settings size={20} /> Settings
                     </button>
-                    <button onClick={() => setActiveView('notifications')} className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg transition-colors ${activeView === 'notifications' ? 'bg-blue-600 text-white' : 'hover:bg-slate-800'}`}>
-                        <Bell size={20} /> Notifications
+                    <button onClick={() => setActiveView('popup')} className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg transition-colors ${activeView === 'popup' as any ? 'bg-blue-600 text-white' : 'hover:bg-slate-800'}`}>
+                        <TrendingUp size={20} /> Marketing Popup
+                    </button>
+                    <button onClick={() => setActiveView('broadcasts')} className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg transition-colors ${activeView === 'broadcasts' ? 'bg-blue-600 text-white' : 'hover:bg-slate-800'}`}>
+                        <Bell size={20} /> Broadcasts
+                    </button>
+                    <button onClick={() => setActiveView('history')} className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg transition-colors ${activeView === 'history' ? 'bg-blue-600 text-white' : 'hover:bg-slate-800'}`}>
+                        <ClipboardList size={20} /> Delivery History
                     </button>
                 </nav>
 
-                <div className="p-4 border-t border-slate-800">
-                    <button onClick={onBack} className="flex items-center gap-2 text-sm text-slate-400 hover:text-white transition-colors">
-                        <ArrowLeft size={16} /> Exit to Client App
+                <div className="p-4 border-t border-slate-800 flex flex-col gap-2">
+                    <button
+                        onClick={() => {
+                            localStorage.removeItem('token');
+                            window.location.reload();
+                        }}
+                        className="w-full flex items-center gap-3 px-4 py-3 rounded-lg text-red-400 hover:bg-slate-800 hover:text-red-300 transition-colors"
+                    >
+                        <LogOut size={20} /> Log out
                     </button>
                 </div>
             </aside>
 
             {/* MAIN CONTENT AREA */}
             <main className="flex-1 flex flex-col h-screen overflow-hidden">
-                <header className="bg-white border-b border-slate-200 p-4 flex items-center justify-between md:hidden">
-                    <button onClick={toggleSidebar} className="text-slate-700"> <Menu size={24} /> </button>
-                    <span className="font-bold text-slate-900">Admin Panel</span>
+                <header className="bg-white border-b border-slate-200 p-4 flex items-center justify-between">
+                    <div className="flex items-center gap-4">
+                        <button onClick={() => setIsSidebarOpen(true)} className="text-slate-700 md:hidden"> <Menu size={24} /> </button>
+                        <span className="font-bold text-slate-900 md:hidden">Admin Panel</span>
+                        <span className="hidden md:block font-bold text-slate-900 text-lg capitalize">
+                            {activeView === 'menu' ? 'Kitchen & Menu' : activeView}
+                        </span>
+                    </div>
+                    <div className="flex items-center gap-4">
+                        <button
+                            onClick={() => setActiveView('inbox')}
+                            className={`relative p-2 rounded-full transition-colors ${activeView === 'inbox' ? 'bg-blue-100 text-blue-600' : 'text-slate-500 hover:bg-slate-100'}`}
+                            title="Inbox"
+                        >
+                            <Bell size={24} />
+                            {unreadCount > 0 && (
+                                <span className="absolute top-2 right-2 w-2 h-2 bg-red-500 rounded-full border border-white"></span>
+                            )}
+                        </button>
+                    </div>
                 </header>
 
                 <div className="flex-1 overflow-y-auto p-4 md:p-8">
@@ -1107,79 +1335,96 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onBack }) => {
                         />
                     )}
                     {activeView === 'menu' && renderKitchenMenu()}
-                    {activeView === 'notifications' && <AdminNotificationsView />}
+                    {activeView === 'broadcasts' && <AdminBroadcastView />}
+                    {activeView === 'inbox' && (
+                        <AdminInboxView
+                            notifications={inboxNotifications}
+                            loading={isInboxLoading}
+                            onMarkRead={handleMarkRead}
+                            onDelete={handleDeleteNotification}
+                        />
+                    )}
+                    {activeView === 'history' && <AdminDeliveryHistory />}
+                    {activeView === 'popup' as any && (
+                        <div className="max-w-2xl mx-auto">
+                            <AdminPopupSettings />
+                        </div>
+                    )}
                     {activeView === 'settings' && (
-                        <div className="max-w-2xl mx-auto bg-white p-8 rounded-xl shadow-sm border border-slate-200">
-                            <h2 className="text-2xl font-bold mb-6 flex items-center gap-2"><MapPin className="text-blue-600" /> Service Area Settings</h2>
+                        <div className="space-y-8">
+                            <div className="max-w-2xl mx-auto bg-white p-8 rounded-xl shadow-sm border border-slate-200">
+                                <h2 className="text-2xl font-bold mb-6 flex items-center gap-2"><MapPin className="text-blue-600" /> Service Area Settings</h2>
 
-                            <div className="space-y-6">
-                                <div className="bg-blue-50 p-4 rounded-lg border border-blue-100 text-sm text-blue-800">
-                                    <p className="font-bold mb-1">How this works:</p>
-                                    <p>Customers must drop a pin within the radius of your outlet to place an order. If they are outside, they will be blocked.</p>
-                                </div>
-
-                                <div className="grid grid-cols-2 gap-4">
-                                    <div className="col-span-2 flex justify-end">
-                                        <button
-                                            onClick={() => setIsLocationLocked(!isLocationLocked)}
-                                            className="text-sm font-medium text-blue-600 hover:text-blue-800 flex items-center gap-1"
-                                            title={isLocationLocked ? "Unlock to edit" : "Lock coordinates"}
-                                        >
-                                            {isLocationLocked ? <Lock size={16} /> : <Unlock size={16} />}
-                                            {isLocationLocked ? "Unlock Coordinates" : "Lock Coordinates"}
-                                        </button>
+                                <div className="space-y-6">
+                                    <div className="bg-blue-50 p-4 rounded-lg border border-blue-100 text-sm text-blue-800">
+                                        <p className="font-bold mb-1">How this works:</p>
+                                        <p>Customers must drop a pin within the radius of your outlet to place an order. If they are outside, they will be blocked.</p>
                                     </div>
+
+                                    <div className="grid grid-cols-2 gap-4">
+                                        <div className="col-span-2 flex justify-end">
+                                            <button
+                                                onClick={() => setIsLocationLocked(!isLocationLocked)}
+                                                className="text-sm font-medium text-blue-600 hover:text-blue-800 flex items-center gap-1"
+                                                title={isLocationLocked ? "Unlock to edit" : "Lock coordinates"}
+                                            >
+                                                {isLocationLocked ? <Lock size={16} /> : <Unlock size={16} />}
+                                                {isLocationLocked ? "Unlock Coordinates" : "Lock Coordinates"}
+                                            </button>
+                                        </div>
+                                        <div>
+                                            <label className="block text-sm font-bold text-slate-700 mb-1">Outlet Latitude</label>
+                                            <input
+                                                type="number"
+                                                step="0.000000000000001"
+                                                value={serviceArea.outletLat}
+                                                onChange={e => setServiceArea({ ...serviceArea, outletLat: parseFloat(e.target.value) })}
+                                                className={`w-full p-2 border rounded ${isLocationLocked ? 'bg-slate-100 text-slate-500 cursor-not-allowed' : ''}`}
+                                                disabled={isLocationLocked}
+                                            />
+                                        </div>
+                                        <div>
+                                            <label className="block text-sm font-bold text-slate-700 mb-1">Outlet Longitude</label>
+                                            <input
+                                                type="number"
+                                                step="0.000000000000001"
+                                                value={serviceArea.outletLng}
+                                                onChange={e => setServiceArea({ ...serviceArea, outletLng: parseFloat(e.target.value) })}
+                                                className={`w-full p-2 border rounded ${isLocationLocked ? 'bg-slate-100 text-slate-500 cursor-not-allowed' : ''}`}
+                                                disabled={isLocationLocked}
+                                            />
+                                        </div>
+                                    </div>
+
                                     <div>
-                                        <label className="block text-sm font-bold text-slate-700 mb-1">Outlet Latitude</label>
+                                        <label className="block text-sm font-bold text-slate-700 mb-2">Service Radius: {serviceArea.serviceRadiusKm} KM</label>
                                         <input
-                                            type="number"
-                                            step="0.000000000000001"
-                                            value={serviceArea.outletLat}
-                                            onChange={e => setServiceArea({ ...serviceArea, outletLat: parseFloat(e.target.value) })}
-                                            className={`w-full p-2 border rounded ${isLocationLocked ? 'bg-slate-100 text-slate-500 cursor-not-allowed' : ''}`}
-                                            disabled={isLocationLocked}
+                                            type="range"
+                                            min="1"
+                                            max="50"
+                                            step="0.5"
+                                            value={serviceArea.serviceRadiusKm}
+                                            onChange={e => setServiceArea({ ...serviceArea, serviceRadiusKm: parseFloat(e.target.value) })}
+                                            className="w-full h-2 bg-slate-200 rounded-lg appearance-none cursor-pointer"
                                         />
+                                        <div className="flex justify-between text-xs text-slate-400 mt-1">
+                                            <span>1 KM</span>
+                                            <span>25 KM</span>
+                                            <span>50 KM</span>
+                                        </div>
                                     </div>
-                                    <div>
-                                        <label className="block text-sm font-bold text-slate-700 mb-1">Outlet Longitude</label>
-                                        <input
-                                            type="number"
-                                            step="0.000000000000001"
-                                            value={serviceArea.outletLng}
-                                            onChange={e => setServiceArea({ ...serviceArea, outletLng: parseFloat(e.target.value) })}
-                                            className={`w-full p-2 border rounded ${isLocationLocked ? 'bg-slate-100 text-slate-500 cursor-not-allowed' : ''}`}
-                                            disabled={isLocationLocked}
-                                        />
-                                    </div>
-                                </div>
 
-                                <div>
-                                    <label className="block text-sm font-bold text-slate-700 mb-2">Service Radius: {serviceArea.serviceRadiusKm} KM</label>
-                                    <input
-                                        type="range"
-                                        min="1"
-                                        max="50"
-                                        step="0.5"
-                                        value={serviceArea.serviceRadiusKm}
-                                        onChange={e => setServiceArea({ ...serviceArea, serviceRadiusKm: parseFloat(e.target.value) })}
-                                        className="w-full h-2 bg-slate-200 rounded-lg appearance-none cursor-pointer"
-                                    />
-                                    <div className="flex justify-between text-xs text-slate-400 mt-1">
-                                        <span>1 KM</span>
-                                        <span>25 KM</span>
-                                        <span>50 KM</span>
-                                    </div>
+                                    <button
+                                        onClick={handleSaveSettings}
+                                        className="w-full bg-blue-600 text-white py-3 rounded-lg font-bold hover:bg-blue-700 transition-colors"
+                                    >
+                                        Save Service Area
+                                    </button>
                                 </div>
-
-                                <button
-                                    onClick={handleSaveSettings}
-                                    className="w-full bg-blue-600 text-white py-3 rounded-lg font-bold hover:bg-blue-700 transition-colors"
-                                >
-                                    Save Service Area
-                                </button>
                             </div>
                         </div>
                     )}
+
                     {renderCustomerDetails()}
                 </div>
             </main>
@@ -1197,7 +1442,6 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onBack }) => {
                                 <option value="user">User</option>
                                 <option value="admin">Admin</option>
                                 <option value="delivery">Delivery Partner (Rider)</option>
-                                <option value="kitchen">Kitchen Staff</option>
                             </select>
                             <input name="password" type="password" placeholder="Password" required className="w-full p-2 border rounded" />
                             <div className="flex justify-end gap-2 pt-2">

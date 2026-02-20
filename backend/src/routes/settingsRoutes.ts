@@ -1,6 +1,7 @@
 import express from 'express';
 import Settings from '../models/Settings';
 import { authenticateToken, authorizeRole } from '../middleware/authMiddleware';
+import { generalUpload } from '../utils/fileUpload';
 
 const router = express.Router();
 
@@ -39,6 +40,68 @@ router.put('/service-area', authenticateToken, authorizeRole(['admin']), async (
         res.json({ message: 'Service area updated successfully' });
     } catch (error) {
         res.status(500).json({ message: 'Failed to update service area settings' });
+    }
+});
+
+// GET /api/settings/popup — public
+router.get('/popup', async (req, res) => {
+    try {
+        const popupEnabled = await Settings.findOne({ where: { key: 'popupEnabled' } });
+        const popupTitle = await Settings.findOne({ where: { key: 'popupTitle' } });
+        const popupDescription = await Settings.findOne({ where: { key: 'popupDescription' } });
+        const popupCountdownText = await Settings.findOne({ where: { key: 'popupCountdownText' } });
+        const popupImage = await Settings.findOne({ where: { key: 'popupImage' } });
+
+        res.json({
+            popupEnabled: popupEnabled?.value === 'true',
+            popupTitle: popupTitle?.value || '',
+            popupDescription: popupDescription?.value || '',
+            popupCountdownText: popupCountdownText?.value || '',
+            popupImage: popupImage?.value || '',
+        });
+    } catch (error) {
+        res.status(500).json({ message: 'Failed to fetch popup settings' });
+    }
+});
+
+// PUT /api/settings/popup — admin only
+router.put('/popup', authenticateToken, authorizeRole(['admin']), generalUpload.single('image'), async (req, res) => {
+    try {
+        const { popupEnabled, popupTitle, popupDescription, popupCountdownText, existingImage } = req.body;
+
+        if (popupEnabled !== undefined) {
+            await Settings.upsert({ key: 'popupEnabled', value: String(popupEnabled) });
+        }
+        if (popupTitle !== undefined) {
+            await Settings.upsert({ key: 'popupTitle', value: String(popupTitle) });
+        }
+        if (popupDescription !== undefined) {
+            await Settings.upsert({ key: 'popupDescription', value: String(popupDescription) });
+        }
+        if (popupCountdownText !== undefined) {
+            await Settings.upsert({ key: 'popupCountdownText', value: String(popupCountdownText) });
+        }
+
+        // Image Handling
+        let imageToSave = existingImage || '';
+
+        if (req.file) {
+            const files = [req.file];
+            const processed = await import('../utils/fileUpload').then(m => m.processUploadedImages(files, m.UploadFolder.GENERAL));
+            if (processed.length > 0) {
+                imageToSave = `/uploads${processed[0].original}`; // we'll use original since thumbnails might be too small
+            }
+        }
+
+        // Always replace if changing from empty to string or new image
+        if (imageToSave !== undefined) {
+            await Settings.upsert({ key: 'popupImage', value: String(imageToSave) });
+        }
+
+        res.json({ message: 'Popup settings updated successfully', popupImage: imageToSave });
+    } catch (error) {
+        console.error("Error saving popup settings", error);
+        res.status(500).json({ message: 'Failed to update popup settings' });
     }
 });
 

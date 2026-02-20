@@ -192,12 +192,22 @@ export const DeliveryDashboard: React.FC<DeliveryDashboardProps> = ({ onBack }) 
                                         </div>
 
                                         <div className="grid grid-cols-2 gap-3 mb-3">
-                                            {item.phone && item.phone !== 'N/A' && (
-                                                <a href={`tel:${item.phone}`} className="flex items-center justify-center gap-2 py-2.5 bg-white border-2 border-gray-200 rounded-lg text-sm font-semibold text-gray-700 hover:bg-gray-50 transition-colors shadow-sm">
-                                                    <Phone size={16} />
-                                                    Call
-                                                </a>
-                                            )}
+                                            <a
+                                                href={item.phone && item.phone !== 'N/A' ? `tel:${item.phone}` : '#'}
+                                                onClick={(e) => {
+                                                    if (!item.phone || item.phone === 'N/A') {
+                                                        e.preventDefault();
+                                                        alert('No phone number available for this customer.');
+                                                    }
+                                                }}
+                                                className={`flex items-center justify-center gap-2 py-2.5 border-2 rounded-lg text-sm font-semibold transition-colors shadow-sm ${item.phone && item.phone !== 'N/A'
+                                                        ? 'bg-white border-gray-200 text-gray-700 hover:bg-gray-50'
+                                                        : 'bg-gray-100 border-gray-200 text-gray-400 cursor-not-allowed'
+                                                    }`}
+                                            >
+                                                <Phone size={16} />
+                                                Call
+                                            </a>
                                             <button
                                                 onClick={() => {
                                                     if (item.lat && item.lng) {
@@ -276,8 +286,8 @@ export const DeliveryDashboard: React.FC<DeliveryDashboardProps> = ({ onBack }) 
                                         </div>
                                         <div className="text-right">
                                             <span className={`text-[10px] font-bold px-2 py-0.5 rounded ${item.status === 'DELIVERED'
-                                                    ? 'bg-green-100 text-green-700'
-                                                    : 'bg-red-100 text-red-700'
+                                                ? 'bg-green-100 text-green-700'
+                                                : 'bg-red-100 text-red-700'
                                                 }`}>
                                                 {item.status === 'DELIVERED' ? '✓ Delivered' : '✗ No Receive'}
                                             </span>

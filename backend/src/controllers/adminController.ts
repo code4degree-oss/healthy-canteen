@@ -30,17 +30,82 @@ export const getAdminStats = async (req: Request, res: Response) => {
         // 2. Total Revenue (Sum of all orders)
         const totalRevenue = await Order.sum('totalPrice');
 
-        // 3. Meals to Prep Today (Aggregate active subscriptions by protein)
-        const activeSubs = await Subscription.findAll({
-            where: { status: 'ACTIVE' },
-            attributes: ['protein', 'mealsPerDay']
+        // 3. Meals to Prep Today (Aggregate active subscriptions by protein & mealType)
+        const now = new Date();
+        const today = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate(), 0, 0, 0, 0));
+
+        const activeSubsToday = await Subscription.findAll({
+            where: {
+                status: 'ACTIVE',
+                startDate: { [Op.lte]: today },
+                endDate: { [Op.gte]: today }
+            },
+            attributes: ['protein', 'mealsPerDay', 'mealTypes']
         });
 
-        const proteinCounts: Record<string, number> = {};
-        activeSubs.forEach(sub => {
+        // Structure: { LUNCH: { CHICKEN: 5, PANEER: 3 }, DINNER: { CHICKEN: 4, PANEER: 2 } }
+        const proteinCounts: Record<string, Record<string, number>> = {
+            LUNCH: {},
+            DINNER: {}
+        };
+
+        activeSubsToday.forEach(sub => {
             const protein = sub.protein?.toUpperCase() || 'UNKNOWN';
-            proteinCounts[protein] = (proteinCounts[protein] || 0) + (sub.mealsPerDay || 0);
+            // Ensure mealTypes is an array. Handle legacy data or defaults.
+            let types: string[] = Array.isArray(sub.mealTypes) ? sub.mealTypes : ['LUNCH'];
+
+            // Legacy fix for Today
+            if (sub.mealsPerDay == 2 && types.length === 1 && types[0] === 'LUNCH') {
+                types = ['LUNCH', 'DINNER'];
+            }
+
+            if (types.includes('LUNCH')) {
+                proteinCounts.LUNCH[protein] = (proteinCounts.LUNCH[protein] || 0) + 1;
+            }
+            if (types.includes('DINNER')) {
+                proteinCounts.DINNER[protein] = (proteinCounts.DINNER[protein] || 0) + 1;
+            }
         });
+
+        // --- NEW: Meals to Prep for Tomorrow ---
+        const tomorrow = new Date(today);
+        tomorrow.setDate(tomorrow.getDate() + 1);
+
+        const activeSubsTomorrow = await Subscription.findAll({
+            where: {
+                status: 'ACTIVE',
+                startDate: { [Op.lte]: tomorrow },
+                endDate: { [Op.gte]: tomorrow }
+            },
+            attributes: ['protein', 'mealsPerDay', 'mealTypes']
+        });
+
+        const tomorrowPrepCounts: Record<string, Record<string, number>> = {
+            LUNCH: {},
+            DINNER: {}
+        };
+
+        activeSubsTomorrow.forEach(sub => {
+            const protein = sub.protein?.toUpperCase() || 'UNKNOWN';
+            let types: string[] = Array.isArray(sub.mealTypes) ? sub.mealTypes : ['LUNCH'];
+
+            // Legacy fix
+            // console.log(`Sub ${sub.id}: mealsPerDay=${sub.mealsPerDay} (${typeof sub.mealsPerDay}), mealTypes=${JSON.stringify(sub.mealTypes)}`);
+            const originalTypes = [...types];
+            if (sub.mealsPerDay == 2 && types.length === 1 && types[0] === 'LUNCH') {
+                types = ['LUNCH', 'DINNER'];
+                // console.log(`-> Patched to LUNCH+DINNER`);
+            }
+
+            if (types.includes('LUNCH')) {
+                tomorrowPrepCounts.LUNCH[protein] = (tomorrowPrepCounts.LUNCH[protein] || 0) + 1;
+            }
+            if (types.includes('DINNER')) {
+                tomorrowPrepCounts.DINNER[protein] = (tomorrowPrepCounts.DINNER[protein] || 0) + 1;
+            }
+        });
+
+        console.log('Protein Counts:', JSON.stringify(tomorrowPrepCounts, null, 2));
 
         // 4. Recent Orders
         const recentOrders = await Order.findAll({
@@ -60,7 +125,8 @@ export const getAdminStats = async (req: Request, res: Response) => {
         res.json({
             activeCount: activeUsersCount,
             totalRevenue: totalRevenue || 0,
-            proteinCounts,
+            proteinCounts, // Now returns { LUNCH: {...}, DINNER: {...} }
+            tomorrowPrepCounts,
             recentOrders: recentOrdersFormatted
         });
     } catch (error: any) {
@@ -89,7 +155,7 @@ export const getAllUsers = async (req: Request, res: Response) => {
 
         const { count, rows } = await User.findAndCountAll({
             where: whereClause,
-            attributes: ['id', 'name', 'email', 'role', 'createdAt'],
+            attributes: ['id', 'name', 'email', 'role', 'createdAt', 'phone', 'address'],
             include: [
                 {
                     model: Order,
@@ -99,13 +165,19 @@ export const getAllUsers = async (req: Request, res: Response) => {
                 {
                     model: Subscription,
                     as: 'subscriptions',
-                    attributes: ['id', 'status', 'protein', 'mealsPerDay', 'daysRemaining', 'deliveryAddress', 'addons'],
-                    include: [{
-                        model: DeliveryLog,
-                        as: 'deliveryLogs',
-                        attributes: ['id', 'status', 'deliveryTime', 'userId'],
-                        include: [{ model: User, as: 'deliveryAgent', attributes: ['id', 'name'] }]
-                    }]
+                    attributes: ['id', 'status', 'protein', 'mealsPerDay', 'daysRemaining', 'deliveryAddress', 'addons', 'startDate', 'endDate', 'mealTypes', 'createdAt'],
+                    include: [
+                        {
+                            model: Order,
+                            attributes: ['deliveryLat', 'deliveryLng']
+                        },
+                        {
+                            model: DeliveryLog,
+                            as: 'deliveryLogs',
+                            attributes: ['id', 'status', 'deliveryTime', 'userId', 'mealType'],
+                            include: [{ model: User, as: 'deliveryAgent', attributes: ['id', 'name'] }]
+                        }
+                    ]
                 }
             ],
             limit,
@@ -114,8 +186,22 @@ export const getAllUsers = async (req: Request, res: Response) => {
             order: [['createdAt', 'DESC']]
         });
 
+        const usersWithValidSubs = rows.map((user: any) => {
+            const userJSON = user.toJSON();
+            if (userJSON.subscriptions) {
+                userJSON.subscriptions = userJSON.subscriptions.map((sub: any) => {
+                    // Legacy fix: If mealsPerDay is 2 but mealTypes is default ['LUNCH'], upgrade to both
+                    if (sub.mealsPerDay === 2 && Array.isArray(sub.mealTypes) && sub.mealTypes.length === 1 && sub.mealTypes[0] === 'LUNCH') {
+                        sub.mealTypes = ['LUNCH', 'DINNER'];
+                    }
+                    return sub;
+                });
+            }
+            return userJSON;
+        });
+
         res.json({
-            users: rows,
+            users: usersWithValidSubs,
             total: count,
             totalPages: Math.ceil(count / limit),
             currentPage: page
@@ -398,16 +484,18 @@ export const getDeliveryPartners = async (req: Request, res: Response) => {
 
 export const assignDelivery = async (req: Request, res: Response) => {
     try {
-        const { subscriptionId, deliveryUserId } = req.body;
+        const { subscriptionId, deliveryUserId, mealType } = req.body;
 
         // Check if a log already exists for today
         const now = new Date();
-        const startOfDay = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 0, 0, 0, 0);
-        const endOfDay = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 23, 59, 59, 999);
+        // Use UTC for consistent day tracking
+        const startOfDay = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate(), 0, 0, 0, 0));
+        const endOfDay = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate(), 23, 59, 59, 999));
 
         let log = await DeliveryLog.findOne({
             where: {
                 subscriptionId,
+                mealType: mealType || 'LUNCH',
                 deliveryTime: {
                     [Op.between]: [startOfDay, endOfDay]
                 }
@@ -425,7 +513,8 @@ export const assignDelivery = async (req: Request, res: Response) => {
                 subscriptionId,
                 userId: deliveryUserId,
                 status: 'ASSIGNED',
-                deliveryTime: new Date() // Planned time (now)
+                deliveryTime: new Date(), // Planned time (now)
+                mealType: mealType || 'LUNCH'
             });
         }
 
@@ -435,7 +524,7 @@ export const assignDelivery = async (req: Request, res: Response) => {
             await Notification.create({
                 userId: sub.userId,
                 title: 'Delivery Assigned! 🚚',
-                message: 'Yo! Your fuel is on the move! Get ready to feast! 🚀',
+                message: `Yo! Your ${mealType || 'LUNCH'} is on the move! Get ready to feast! 🚀`,
                 type: 'delivery'
             });
         }
@@ -449,15 +538,17 @@ export const assignDelivery = async (req: Request, res: Response) => {
 
 export const markReady = async (req: Request, res: Response) => {
     try {
-        const { subscriptionId } = req.body;
+        const { subscriptionId, mealType } = req.body;
 
         const now = new Date();
-        const startOfDay = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 0, 0, 0, 0);
-        const endOfDay = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 23, 59, 59, 999);
+        // Use UTC for consistent day tracking
+        const startOfDay = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate(), 0, 0, 0, 0));
+        const endOfDay = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate(), 23, 59, 59, 999));
 
         let log = await DeliveryLog.findOne({
             where: {
                 subscriptionId,
+                mealType: mealType || 'LUNCH',
                 deliveryTime: {
                     [Op.between]: [startOfDay, endOfDay]
                 }
@@ -471,7 +562,8 @@ export const markReady = async (req: Request, res: Response) => {
             await DeliveryLog.create({
                 subscriptionId,
                 status: 'READY',
-                deliveryTime: new Date()
+                deliveryTime: new Date(),
+                mealType: mealType || 'LUNCH'
             });
         }
 
@@ -577,5 +669,69 @@ export const deleteImage = async (req: Request, res: Response) => {
     } catch (error) {
         console.error("Error deleting image:", error);
         res.status(500).json({ message: 'Error deleting image', error });
+    }
+};
+
+export const updateUser = async (req: Request, res: Response) => {
+    try {
+        const { id } = req.params;
+        const { name, email, phone, address, role } = req.body;
+
+        const user = await User.findByPk(id);
+        if (!user) {
+            return res.status(404).json({ message: 'User not found' });
+        }
+
+        if (name !== undefined) user.name = name;
+        if (email !== undefined) user.email = email;
+        if (phone !== undefined) user.phone = phone;
+        if (address !== undefined) user.address = address;
+        if (role !== undefined) user.role = role;
+
+        await user.save();
+
+        res.json({ message: 'User updated successfully', user });
+    } catch (error) {
+        console.error("Error updating user:", error);
+        res.status(500).json({ message: 'Error updating user', error });
+    }
+};
+export const getDeliveryHistory = async (req: Request, res: Response) => {
+    try {
+        const dateStr = req.query.date as string; // YYYY-MM-DD
+        if (!dateStr) {
+            return res.status(400).json({ message: 'Date is required (YYYY-MM-DD)' });
+        }
+
+        const startOfDay = new Date(dateStr);
+        startOfDay.setHours(0, 0, 0, 0);
+
+        const endOfDay = new Date(dateStr);
+        endOfDay.setHours(23, 59, 59, 999);
+
+        const logs = await DeliveryLog.findAll({
+            where: {
+                deliveryTime: {
+                    [Op.between]: [startOfDay, endOfDay]
+                }
+            },
+            include: [
+                {
+                    model: User,
+                    as: 'deliveryAgent',
+                    attributes: ['id', 'name', 'phone']
+                },
+                {
+                    model: Subscription,
+                    include: [{ model: User, attributes: ['name', 'address', 'phone'] }]
+                }
+            ],
+            order: [['deliveryTime', 'DESC']]
+        });
+
+        res.json(logs);
+    } catch (error) {
+        console.error("Error fetching delivery history:", error);
+        res.status(500).json({ message: 'Error fetching delivery history' });
     }
 };

@@ -1,5 +1,5 @@
 import React from 'react';
-import { Search, Plus, Trash2 } from 'lucide-react';
+import { Search, Plus, Trash2, Download } from 'lucide-react';
 
 interface AdminCustomerListProps {
     customers: any[];
@@ -26,8 +26,99 @@ export const AdminCustomerList: React.FC<AdminCustomerListProps> = ({
     setShowCreateUserModal,
     handleDeleteUser
 }) => {
-    // Client-side filtering is removed since we have server-side search
-    const filtered = customers;
+    // Client-side filtering logic
+    const [statusFilter, setStatusFilter] = React.useState<'ALL' | 'ACTIVE' | 'PAUSED' | 'CANCELLED'>('ALL');
+
+    const filtered = customers.filter(customer => {
+        if (statusFilter === 'ALL') return true;
+
+        const hasMatchingSub = customer.subscriptions?.some((s: any) => s.status === statusFilter);
+        // Special case: If filtering by CANCELLED, maybe check if they have NO active subs? 
+        // Or just if they have a cancelled sub? 
+        // For simplicity, let's show users who have AT LEAST ONE subscription of that status.
+        return hasMatchingSub;
+    });
+
+    const handleDownloadCSV = () => {
+        // Define Headers
+        const headers = [
+            "Name",
+            "Email",
+            "Role",
+            "Protein (Plan)",
+            "Status",
+            "Remaining Days",
+            "Plan Purchase Date",
+            "Plan Start Date",
+            "Meal Types"
+        ];
+
+        // Format raw data to rows
+        const rows = filtered.map(customer => {
+            const activeSub = customer.subscriptions?.find((s: any) => s.status === 'ACTIVE');
+            const sub = activeSub || customer.subscriptions?.[0]; // Fallback to first
+
+            let protein = 'No Plan';
+            let status = 'Inactive';
+            let remainingDays = '0';
+            let purchaseDate = '-';
+            let startDate = '-';
+            let mealTypes = '-';
+
+            if (sub) {
+                protein = sub.protein || '-';
+                status = sub.status || '-';
+                remainingDays = sub.status === 'ACTIVE' ? String(sub.daysRemaining || 0) : '0';
+
+                try {
+                    purchaseDate = sub.createdAt ? new Date(sub.createdAt).toISOString().split('T')[0] : '-';
+                } catch (e) { purchaseDate = '-'; }
+
+                try {
+                    startDate = sub.startDate ? new Date(sub.startDate).toISOString().split('T')[0] : '-';
+                } catch (e) { startDate = '-'; }
+
+                if (sub.mealTypes && Array.isArray(sub.mealTypes)) {
+                    mealTypes = sub.mealTypes.join('/');
+                } else if (sub.mealTypes) {
+                    mealTypes = String(sub.mealTypes);
+                } else if (!sub.mealTypes) {
+                    mealTypes = 'LUNCH'; // Default legacy fallback
+                }
+            }
+
+            // Return array matching headers
+            // Using ="value" formula syntax for dates to prevent Excel from auto-formatting into #### 
+            return [
+                `"${customer.name || ''}"`,
+                `"${customer.email || ''}"`,
+                `"${customer.role || 'user'}"`,
+                `"${protein}"`,
+                `"${status}"`,
+                `"${remainingDays}"`,
+                `="${purchaseDate}"`,
+                `="${startDate}"`,
+                `"${mealTypes}"`
+            ];
+        });
+
+        // Combine
+        const csvContent = [
+            headers.join(','),
+            ...rows.map(r => r.join(','))
+        ].join('\n');
+
+        // Create Blob and trigger download
+        const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+        const url = URL.createObjectURL(blob);
+        const link = document.createElement('a');
+        link.href = url;
+        link.setAttribute('download', `customers_list_${new Date().toISOString().split('T')[0]}.csv`);
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+        URL.revokeObjectURL(url);
+    };
 
     return (
         <div className="animate-in fade-in duration-500">
@@ -43,9 +134,30 @@ export const AdminCustomerList: React.FC<AdminCustomerListProps> = ({
                         className="pl-10 pr-4 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 w-full md:w-64 text-sm bg-white"
                     />
                 </div>
-                <button onClick={() => setShowCreateUserModal(true)} className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg text-sm font-medium flex items-center gap-2">
-                    <Plus size={16} /> Add User
-                </button>
+                <div className="flex gap-2">
+                    <button onClick={handleDownloadCSV} className="bg-slate-800 hover:bg-slate-900 text-white px-4 py-2 rounded-lg text-sm font-medium flex items-center gap-2 transition-colors">
+                        <Download size={16} /> Download CSV
+                    </button>
+                    <button onClick={() => setShowCreateUserModal(true)} className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg text-sm font-medium flex items-center gap-2 transition-colors">
+                        <Plus size={16} /> Add User
+                    </button>
+                </div>
+            </div>
+
+            {/* Status Filter Tabs */}
+            <div className="flex gap-2 mb-4 overflow-x-auto pb-2">
+                {['ALL', 'ACTIVE', 'PAUSED', 'CANCELLED'].map((status) => (
+                    <button
+                        key={status}
+                        onClick={() => setStatusFilter(status as any)}
+                        className={`px-4 py-2 rounded-full text-xs font-bold transition-colors whitespace-nowrap ${statusFilter === status
+                            ? 'bg-slate-900 text-white'
+                            : 'bg-white border border-slate-200 text-slate-600 hover:bg-slate-50'
+                            }`}
+                    >
+                        {status}
+                    </button>
+                ))}
             </div>
 
             {/* Table */}
@@ -78,9 +190,32 @@ export const AdminCustomerList: React.FC<AdminCustomerListProps> = ({
 
                                         if (sub) {
                                             return (
-                                                <div className="flex items-center gap-2">
-                                                    <span className={`w-2 h-2 rounded-full ${sub.protein === 'CHICKEN' ? 'bg-orange-400' : 'bg-green-400'}`}></span>
-                                                    <span className="text-sm">{sub.protein} ({sub.status})</span>
+                                                <div className="flex flex-col gap-1">
+                                                    <div className="flex items-center gap-2">
+                                                        <span className={`w-2 h-2 rounded-full ${sub.protein === 'CHICKEN' ? 'bg-orange-400' : 'bg-green-400'}`}></span>
+                                                        <span className="text-sm font-medium text-slate-700">{sub.protein}</span>
+                                                        <span className={`text-[10px] px-1.5 py-0.5 rounded font-bold ${sub.status === 'ACTIVE' ? 'bg-green-100 text-green-700' :
+                                                            sub.status === 'PAUSED' ? 'bg-yellow-100 text-yellow-700' :
+                                                                'bg-red-100 text-red-700'
+                                                            }`} title={sub.cancellationReason ? `Reason: ${sub.cancellationReason}` : ''}>
+                                                            {sub.status}
+                                                        </span>
+                                                        {sub.status === 'CANCELLED' && sub.cancellationReason && (
+                                                            <span className="text-[10px] text-slate-400 border border-slate-200 rounded px-1 max-w-[100px] truncate" title={sub.cancellationReason}>
+                                                                {sub.cancellationReason}
+                                                            </span>
+                                                        )}
+                                                    </div>
+                                                    {sub.status === 'ACTIVE' && (
+                                                        <span className="text-xs text-slate-500 font-medium ml-4">
+                                                            {sub.daysRemaining} days remaining
+                                                        </span>
+                                                    )}
+                                                    {sub.status === 'PAUSED' && (
+                                                        <span className="text-xs text-slate-500 font-medium ml-4">
+                                                            Paused (Resumes manually)
+                                                        </span>
+                                                    )}
                                                 </div>
                                             );
                                         }

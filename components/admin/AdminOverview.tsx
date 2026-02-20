@@ -4,7 +4,8 @@ import { Users, DollarSign, Utensils, Activity } from 'lucide-react';
 interface StatsData {
     activeCount: number;
     totalRevenue: number;
-    proteinCounts?: Record<string, number>;
+    proteinCounts?: Record<string, Record<string, number>>;
+    tomorrowPrepCounts?: Record<string, Record<string, number>>;
     recentOrders: any[];
 }
 
@@ -13,6 +14,32 @@ interface AdminOverviewProps {
 }
 
 export const AdminOverview: React.FC<AdminOverviewProps> = ({ stats }) => {
+
+    const calculateTotal = (counts?: Record<string, Record<string, number>>) => {
+        if (!counts) return 0;
+        let total = 0;
+        Object.values(counts).forEach(mealTypeCounts => {
+            Object.values(mealTypeCounts).forEach(c => total += c);
+        });
+        return total;
+    };
+
+    const calculateMealTypeTotal = (counts: Record<string, Record<string, number>> | undefined, type: string) => {
+        if (!counts || !counts[type]) return 0;
+        return Object.values(counts[type]).reduce((a, b) => a + b, 0);
+    };
+
+    const calculateProteinTotals = (counts?: Record<string, Record<string, number>>) => {
+        if (!counts) return {};
+        const totals: Record<string, number> = {};
+        Object.values(counts).forEach(mealTypeCounts => {
+            Object.entries(mealTypeCounts).forEach(([protein, count]) => {
+                totals[protein] = (totals[protein] || 0) + count;
+            });
+        });
+        return totals;
+    };
+
     return (
         <div className="space-y-6 animate-in fade-in duration-500">
             <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
@@ -38,9 +65,58 @@ export const AdminOverview: React.FC<AdminOverviewProps> = ({ stats }) => {
                         <div className="p-2 bg-orange-50 rounded-lg"><Utensils className="text-orange-600" size={24} /></div>
                     </div>
                     <h3 className="text-slate-500 text-sm font-medium">Meals to Prep Today</h3>
+                    <div className="flex items-baseline gap-2">
+                        <p className="text-3xl font-bold text-slate-900 mt-1">
+                            {calculateTotal(stats.proteinCounts)}
+                        </p>
+                        <span className="text-xs text-slate-400">
+                            (L: {calculateMealTypeTotal(stats.proteinCounts, 'LUNCH')} / D: {calculateMealTypeTotal(stats.proteinCounts, 'DINNER')})
+                        </span>
+                    </div>
+                </div>
+
+                <div className="bg-white p-6 rounded-xl border border-slate-200 shadow-sm">
+                    <div className="flex justify-between items-start mb-4">
+                        <div className="p-2 bg-purple-50 rounded-lg"><Activity className="text-purple-600" size={24} /></div>
+                    </div>
+                    <h3 className="text-slate-500 text-sm font-medium">Tomorrow's Prep</h3>
                     <p className="text-3xl font-bold text-slate-900 mt-1">
-                        {stats.proteinCounts ? (Object.values(stats.proteinCounts) as number[]).reduce((a, b) => a + b, 0) : 0}
+                        {calculateTotal(stats.tomorrowPrepCounts)}
                     </p>
+
+                    {/* Aggregated Protein Totals */}
+                    <div className="flex gap-3 mt-2 pb-2 border-b border-slate-100">
+                        {Object.entries(calculateProteinTotals(stats.tomorrowPrepCounts)).map(([protein, count]) => (
+                            <div key={protein} className="bg-slate-100 px-2 py-1 rounded text-xs font-semibold text-slate-600">
+                                {protein.split(' ')[0]}: {count}
+                            </div>
+                        ))}
+                    </div>
+
+                    <div className="text-xs text-slate-500 mt-2 space-y-2">
+                        <div>
+                            <div className="flex justify-between font-bold text-slate-700 border-b border-slate-100 pb-1 mb-1">
+                                <span>Lunch ({calculateMealTypeTotal(stats.tomorrowPrepCounts, 'LUNCH')})</span>
+                            </div>
+                            {stats.tomorrowPrepCounts?.LUNCH && Object.entries(stats.tomorrowPrepCounts.LUNCH).map(([protein, count]) => (
+                                <div key={`L-${protein}`} className="flex justify-between pl-2">
+                                    <span>{protein}</span>
+                                    <span>{count as number}</span>
+                                </div>
+                            ))}
+                        </div>
+                        <div>
+                            <div className="flex justify-between font-bold text-slate-700 border-b border-slate-100 pb-1 mb-1">
+                                <span>Dinner ({calculateMealTypeTotal(stats.tomorrowPrepCounts, 'DINNER')})</span>
+                            </div>
+                            {stats.tomorrowPrepCounts?.DINNER && Object.entries(stats.tomorrowPrepCounts.DINNER).map(([protein, count]) => (
+                                <div key={`D-${protein}`} className="flex justify-between pl-2">
+                                    <span>{protein}</span>
+                                    <span>{count as number}</span>
+                                </div>
+                            ))}
+                        </div>
+                    </div>
                 </div>
             </div>
 

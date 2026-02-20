@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { Bell, Send, CheckCircle, AlertTriangle, Info } from 'lucide-react';
 import { notifications } from '../../src/services/api';
 
-export const AdminNotificationsView: React.FC = () => {
+export const AdminBroadcastView: React.FC = () => {
     const [title, setTitle] = useState('');
     const [message, setMessage] = useState('');
     const [type, setType] = useState<'info' | 'alert' | 'success'>('info');
