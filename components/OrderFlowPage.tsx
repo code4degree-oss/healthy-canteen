@@ -434,11 +434,16 @@ export const OrderFlowPage: React.FC<OrderFlowPageProps> = ({ onBack }) => {
     }, []);
 
     const [loading, setLoading] = useState(false);
+    const [termsAccepted, setTermsAccepted] = useState(false);
 
     // --- Upsell State ---
     const [showKefirUpsell, setShowKefirUpsell] = useState(false);
 
     const handleConfirmOrder = async () => {
+        if (!termsAccepted) {
+            alert("Please accept the Terms & Conditions and Privacy Policy to proceed.");
+            return;
+        }
         setLoading(true);
         try {
             const orderData = {
@@ -981,7 +986,7 @@ export const OrderFlowPage: React.FC<OrderFlowPageProps> = ({ onBack }) => {
                                                         return (
                                                             <div key={key} className="flex justify-between text-xs font-body mb-2">
                                                                 <div>
-                                                                    <span>{def.name} x{item.quantity}</span>
+                                                                    <span>{def.name} x{item.quantity} <span className="text-[10px] text-gray-500">({item.frequency === 'daily' ? 'DAILY' : 'ONCE'})</span></span>
                                                                     {discount > 0 && (
                                                                         <span className="text-green-600 ml-1 font-bold">(-{(discount * 100).toFixed(1)}%)</span>
                                                                     )}
@@ -1053,7 +1058,12 @@ export const OrderFlowPage: React.FC<OrderFlowPageProps> = ({ onBack }) => {
                                                         {isSelected ? (
                                                             <div className="flex items-center justify-between bg-gray-50 rounded-xl p-2 border-2 border-gray-200">
                                                                 <button onClick={(e) => { e.stopPropagation(); updateAddon(addonId, -1, sel.frequency); }} className="w-8 h-8 flex items-center justify-center bg-white border-2 border-black rounded-lg hover:bg-red-50 text-red-500 shadow-sm"><Minus size={14} strokeWidth={3} /></button>
-                                                                <span className="font-heading text-lg">{sel.quantity}</span>
+                                                                <span className="font-heading text-base md:text-lg text-center flex-1">
+                                                                    {sel.quantity}
+                                                                    <span className="block text-[8px] md:text-[10px] text-gray-400 mt-[-2px]">
+                                                                        {sel.frequency === 'daily' ? 'DAILY' : 'ONCE'}
+                                                                    </span>
+                                                                </span>
                                                                 <button onClick={(e) => { e.stopPropagation(); handleAddonClick(addon); }} className="w-8 h-8 flex items-center justify-center bg-quirky-green border-2 border-black rounded-lg hover:bg-green-400 shadow-sm"><Plus size={14} /></button>
                                                             </div>
                                                         ) : (
@@ -1241,6 +1251,20 @@ export const OrderFlowPage: React.FC<OrderFlowPageProps> = ({ onBack }) => {
                                         <div className="flex gap-2 text-xs text-gray-500 bg-gray-50 p-2 rounded border border-gray-200">
                                             <MapPin size={16} className="shrink-0" />
                                             <p className="line-clamp-2">{form.flatDetails}, (Lat: {location?.lat.toFixed(2)}, Lng: {location?.lng.toFixed(2)})</p>
+                                        </div>
+
+                                        {/* TERMS AND CONDITIONS CHECKBOX */}
+                                        <div className="flex items-start gap-2 text-xs text-gray-600 mt-2 px-1">
+                                            <input
+                                                type="checkbox"
+                                                id="terms-checkbox"
+                                                checked={termsAccepted}
+                                                onChange={(e) => setTermsAccepted(e.target.checked)}
+                                                className="mt-0.5 min-w-[16px] h-4 w-4 rounded border-gray-300 text-quirky-green focus:ring-quirky-green cursor-pointer"
+                                            />
+                                            <label htmlFor="terms-checkbox" className="leading-tight cursor-pointer">
+                                                I agree to the <a href="/terms-and-conditions" target="_blank" rel="noopener noreferrer" className="underline text-black font-bold hover:text-quirky-green">Terms and Conditions</a> and <a href="/privacy-policy" target="_blank" rel="noopener noreferrer" className="underline text-black font-bold hover:text-quirky-green">Privacy Policy</a>
+                                            </label>
                                         </div>
 
                                         <QuirkyButton onClick={handleConfirmOrder} disabled={loading} className="w-full text-lg md:text-xl py-4 flex items-center justify-center gap-2">

@@ -27,7 +27,7 @@ export const HeroSection: React.FC = () => {
         <img src="/hero-paneer.png" alt="Paneer" className="w-24 md:w-32 drop-shadow-2xl rotate-12" />
       </div>
 
-      <div className="relative z-10 max-w-5xl text-center">
+      <div className="relative z-10 max-w-5xl text-center -mt-24 md:mt-0">
 
         {/* Badge */}
         <div className="inline-block transform -rotate-6 mb-8 bg-white/80 backdrop-blur-sm border-3 border-black px-4 py-2 md:px-6 shadow-hard hover:scale-110 transition-transform cursor-pointer">
