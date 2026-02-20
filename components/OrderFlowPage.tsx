@@ -1263,7 +1263,7 @@ export const OrderFlowPage: React.FC<OrderFlowPageProps> = ({ onBack }) => {
                                                 className="mt-0.5 min-w-[16px] h-4 w-4 rounded border-gray-300 text-quirky-green focus:ring-quirky-green cursor-pointer"
                                             />
                                             <label htmlFor="terms-checkbox" className="leading-tight cursor-pointer">
-                                                I agree to the <a href="/terms-and-conditions" target="_blank" rel="noopener noreferrer" className="underline text-black font-bold hover:text-quirky-green">Terms and Conditions</a> and <a href="/privacy-policy" target="_blank" rel="noopener noreferrer" className="underline text-black font-bold hover:text-quirky-green">Privacy Policy</a>
+                                                I agree to the <a href="/policies" target="_blank" rel="noopener noreferrer" className="underline text-black font-bold hover:text-quirky-green">Terms and Conditions</a> and <a href="/policies" target="_blank" rel="noopener noreferrer" className="underline text-black font-bold hover:text-quirky-green">Privacy Policy</a>
                                             </label>
                                         </div>
 
