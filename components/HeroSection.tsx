@@ -1,10 +1,13 @@
 import React from 'react';
+import { useNavigate } from 'react-router-dom';
 import { QuirkyButton } from './QuirkyButton';
 import { Leaf } from 'lucide-react';
 
 export const HeroSection: React.FC = () => {
-  const scrollToMenu = () => {
-    document.getElementById('menu')?.scrollIntoView({ behavior: 'smooth' });
+  const navigate = useNavigate();
+
+  const handleShowFood = () => {
+    navigate('/order');
   };
 
   return (
@@ -61,12 +64,12 @@ export const HeroSection: React.FC = () => {
           <div className="absolute -bottom-3 -right-3 w-4 h-4 md:w-6 md:h-6 bg-quirky-green border-2 border-black rounded-full"></div>
 
           <p className="font-body text-lg md:text-xl lg:text-2xl text-black font-bold">
-            "Your gym membership works harder when you feed it right."
+            "Good habits, delivered. No more excuses, just good food."
           </p>
         </div>
 
         <div className="flex flex-col md:flex-row gap-4 md:gap-8 justify-center items-center">
-          <QuirkyButton onClick={scrollToMenu} variant="primary" className="text-xl md:text-2xl w-full md:w-auto px-8 md:px-10 py-4 md:py-5 rotate-2 hover:rotate-0 shadow-xl">
+          <QuirkyButton onClick={handleShowFood} variant="primary" className="text-xl md:text-2xl w-full md:w-auto px-8 md:px-10 py-4 md:py-5 rotate-2 hover:rotate-0 shadow-xl">
             SHOW ME FOOD 🍔
           </QuirkyButton>
         </div>

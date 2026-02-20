@@ -31,7 +31,7 @@ export const OrderFlowModal: React.FC<OrderFlowModalProps> = ({ isOpen, onClose 
     const [form, setForm] = useState({ name: '', phone: '', email: '', address: '' });
 
     // Slider stops
-    const stops = [1, 6, 14, 24];
+    const stops = [1, 6, 12, 24];
 
     // --- Calculations ---
     useEffect(() => {
@@ -157,22 +157,22 @@ export const OrderFlowModal: React.FC<OrderFlowModalProps> = ({ isOpen, onClose 
                                             <div
                                                 key={stop}
                                                 className="flex flex-col items-center cursor-pointer hover:text-black transition-colors"
-                                                style={{ left: `${((stop - 1) / 29) * 100}%`, position: 'absolute', transform: 'translateX(-50%)' }}
+                                                style={{
+                                                    left: `calc(12px + ${((stop - 1) / 23)} * (100% - 24px))`,
+                                                    position: 'absolute',
+                                                    transform: 'translateX(-50%)'
+                                                }}
                                                 onClick={() => setDays(stop)}
                                             >
                                                 <div className={`w-3 h-3 border-2 border-black rounded-full mb-2 ${days >= stop ? 'bg-quirky-green' : 'bg-white'}`}></div>
                                                 {stop}D
                                             </div>
                                         ))}
-                                        <div className="flex flex-col items-center absolute" style={{ right: '0%', transform: 'translateX(50%)' }}>
-                                            <div className={`w-3 h-3 border-2 border-black rounded-full mb-2 ${days === 30 ? 'bg-quirky-green' : 'bg-white'}`}></div>
-                                            30D
-                                        </div>
                                     </div>
                                     <input
                                         type="range"
                                         min="1"
-                                        max="30"
+                                        max="24"
                                         value={days}
                                         onChange={(e) => setDays(parseInt(e.target.value))}
                                         className="w-full relative z-10 accent-quirky-black"

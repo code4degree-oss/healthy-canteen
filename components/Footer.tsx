@@ -22,15 +22,26 @@ export const Footer: React.FC = () => {
                     <ul className="space-y-4 font-body text-sm">
                         <li className="flex items-center gap-3">
                             <Phone size={18} className="text-quirky-green" />
-                            {CONTACT_INFO.phone}
+                            <a href={`tel:${CONTACT_INFO.phone}`} className="hover:text-quirky-green transition-colors">
+                                {CONTACT_INFO.phone}
+                            </a>
                         </li>
                         <li className="flex items-center gap-3">
                             <Mail size={18} className="text-quirky-green" />
-                            {CONTACT_INFO.email}
+                            <a href={`mailto:${CONTACT_INFO.email}`} className="hover:text-quirky-green transition-colors">
+                                {CONTACT_INFO.email}
+                            </a>
                         </li>
                         <li className="flex items-start gap-3">
                             <MapPin size={18} className="text-quirky-green flex-shrink-0 mt-1" />
-                            {CONTACT_INFO.address}
+                            <a
+                                href={`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(CONTACT_INFO.address)}`}
+                                target="_blank"
+                                rel="noreferrer"
+                                className="hover:text-quirky-green transition-colors"
+                            >
+                                {CONTACT_INFO.address}
+                            </a>
                         </li>
                     </ul>
                 </div>

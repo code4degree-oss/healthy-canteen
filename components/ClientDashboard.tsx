@@ -29,6 +29,14 @@ export const ClientDashboard: React.FC<ClientDashboardProps> = ({ onBack }) => {
 
     const [loading, setLoading] = useState(true);
 
+    const getTodayDeliveryStatus = (sub: UserSubscription) => {
+        if (!sub.deliveryLogs) return null;
+        const today = new Date().toISOString().split('T')[0];
+        return sub.deliveryLogs.find((log: any) => new Date(log.deliveryTime).toISOString().split('T')[0] === today);
+    };
+
+
+
     // Notifications State
     const [notificationList, setNotificationList] = useState<Notification[]>([]);
     const [showNotifications, setShowNotifications] = useState(false);
@@ -80,38 +88,65 @@ export const ClientDashboard: React.FC<ClientDashboardProps> = ({ onBack }) => {
 
     // --- Handlers ---
 
-    const [showPauseModal, setShowPauseModal] = useState(false);
-    const [pauseConfig, setPauseConfig] = useState({ date: '', days: 1, subscriptionId: 0 });
+    // PAUSE/RESUME LOGIC
+    const handlePauseToggle = async (sub: UserSubscription) => {
+        if (!confirm(sub.status === 'ACTIVE' ? 'Are you sure you want to PAUSE your plan? You can resume it anytime.' : 'Ready to RESUME your gains?')) return;
 
-    const handlePauseClick = (subId: number) => {
-        const sub = subscriptionsList.find(s => s.id === subId);
-        if (!sub || sub.status !== 'ACTIVE') return;
-
-        // Default start date: Tomorrow
-        const tomorrow = new Date();
-        tomorrow.setDate(tomorrow.getDate() + 1);
-        setPauseConfig({ date: tomorrow.toISOString().split('T')[0], days: 1, subscriptionId: subId });
-        setShowPauseModal(true);
-    };
-
-    const handlePauseSubmit = async () => {
-        if (!pauseConfig.subscriptionId) return;
         try {
             setLoading(true);
+            // reused 'pause' endpoint which now acts as a toggle
             await subscriptions.pause({
-                subscriptionId: pauseConfig.subscriptionId,
-                startDate: pauseConfig.date,
-                days: pauseConfig.days
+                subscriptionId: sub.id,
+                startDate: '', // Not used in new logic
+                days: 0       // Not used in new logic
             });
-            alert(`Subscription paused for ${pauseConfig.days} days!`);
-            setShowPauseModal(false);
+            alert(sub.status === 'ACTIVE' ? 'Plan Paused ⏸️' : 'Plan Resumed ▶️');
 
-            // Refresh data
+            // Refresh
             const subRes = await orders.getActiveSubscription();
             const subs = Array.isArray(subRes.data) ? subRes.data : (subRes.data ? [subRes.data] : []);
             setSubscriptionsList(subs);
         } catch (error: any) {
-            alert(error.response?.data?.message || 'Failed to pause');
+            alert(error.response?.data?.message || 'Failed to update plan status');
+        } finally {
+            setLoading(false);
+        }
+    };
+
+    // CANCELLATION LOGIC
+    const [showCancelModal, setShowCancelModal] = useState<number | null>(null);
+    const [cancelReason, setCancelReason] = useState('');
+
+    const handleCancelClick = (sub: UserSubscription) => {
+        // Double check duration rule clientside (though backend enforces it)
+        if (sub.totalDays <= 6) {
+            alert("Cancellation is only available for plans longer than 6 days.");
+            return;
+        }
+        setShowCancelModal(sub.id);
+        setCancelReason('');
+    };
+
+    const handleCancelSubmit = async () => {
+        if (!showCancelModal) return;
+        if (!cancelReason.trim()) return alert("Please provide a reason.");
+
+        try {
+            setLoading(true);
+            await subscriptions.cancel({
+                subscriptionId: showCancelModal,
+                reason: cancelReason // backend expects this but passed via data object in axios usually
+            } as any); // Type casting if api definition isn't fully updated in TS
+
+            alert('Plan Cancelled. Refund processing initiated.');
+            setShowCancelModal(null);
+
+            // Refresh
+            const subRes = await orders.getActiveSubscription();
+            const subs = Array.isArray(subRes.data) ? subRes.data : (subRes.data ? [subRes.data] : []);
+            setSubscriptionsList(subs);
+        } catch (error: any) {
+            alert(error.response?.data?.message || 'Failed to cancel plan');
         } finally {
             setLoading(false);
         }
@@ -251,8 +286,8 @@ export const ClientDashboard: React.FC<ClientDashboardProps> = ({ onBack }) => {
                         {/* Subscriptions List */}
                         <div className="lg:col-span-2 space-y-6">
                             {subscriptionsList.length > 0 ? (
-                                subscriptionsList.map(subscription => (
-                                    <div key={subscription.id} className="bg-white border-4 border-black rounded-3xl p-6 md:p-8 shadow-hard-xl relative overflow-hidden">
+                                subscriptionsList.map(sub => (
+                                    <div key={sub.id} className="bg-white border-4 border-black rounded-3xl p-6 md:p-8 shadow-hard-xl relative overflow-hidden">
                                         {/* Background Pattern */}
                                         <div className="absolute top-0 right-0 p-4 opacity-10 pointer-events-none">
                                             <Zap size={100} />
@@ -261,13 +296,13 @@ export const ClientDashboard: React.FC<ClientDashboardProps> = ({ onBack }) => {
                                         <div className="flex justify-between items-start mb-8 relative z-10">
                                             <div>
                                                 <div className="flex items-center gap-2 mb-2">
-                                                    <h2 className="font-heading text-2xl md:text-3xl">{subscription.protein} PLAN</h2>
-                                                    <span className={`px-2 py-0.5 text-xs font-bold border border-black rounded ${subscription.status === 'ACTIVE' ? 'bg-green-300' : 'bg-gray-300'}`}>{subscription.status}</span>
+                                                    <h2 className="font-heading text-2xl md:text-3xl">{sub.protein} PLAN</h2>
+                                                    <span className={`px-2 py-0.5 text-xs font-bold border border-black rounded ${sub.status === 'ACTIVE' ? 'bg-green-300' : sub.status === 'PAUSED' ? 'bg-yellow-300' : 'bg-gray-300'}`}>{sub.status}</span>
                                                 </div>
-                                                <p className="font-body text-gray-500">{subscription.mealsPerDay} Meal / Day</p>
+                                                <p className="font-body text-gray-500">{sub.mealsPerDay} Meal / Day</p>
                                             </div>
                                             <div className="text-right">
-                                                <div className="font-heading text-4xl md:text-5xl text-quirky-green text-stroke-sm">{subscription.daysRemaining}</div>
+                                                <div className="font-heading text-4xl md:text-5xl text-quirky-green text-stroke-sm">{sub.daysRemaining}</div>
                                                 <div className="font-body text-xs font-bold uppercase">Days Left</div>
                                             </div>
                                         </div>
@@ -276,26 +311,97 @@ export const ClientDashboard: React.FC<ClientDashboardProps> = ({ onBack }) => {
                                         <div className="w-full bg-gray-200 h-6 border-2 border-black rounded-full mb-8 relative overflow-hidden">
                                             <div
                                                 className="bg-quirky-yellow h-full border-r-2 border-black transition-all duration-1000"
-                                                style={{ width: `${((subscription.totalDays - subscription.daysRemaining) / subscription.totalDays) * 100}%` }}
+                                                style={{ width: `${((sub.totalDays - sub.daysRemaining) / sub.totalDays) * 100}%` }}
                                             ></div>
                                             <div className="absolute inset-0 bg-[linear-gradient(45deg,transparent_25%,rgba(0,0,0,0.1)_25%,rgba(0,0,0,0.1)_50%,transparent_50%,transparent_75%,rgba(0,0,0,0.1)_75%,rgba(0,0,0,0.1)_100%)] bg-[length:20px_20px] opacity-50"></div>
                                         </div>
 
-                                        <div className="flex flex-col sm:flex-row gap-4">
-                                            <button
-                                                onClick={() => handlePauseClick(subscription.id)}
-                                                disabled={subscription.pausesRemaining <= 0}
-                                                className={`flex-1 flex items-center justify-center gap-2 py-3 md:py-4 border-3 border-black rounded-xl font-heading transition-all ${subscription.status === 'ACTIVE' ? 'bg-white hover:bg-yellow-100' : 'bg-gray-200 cursor-not-allowed'}`}
-                                            >
-                                                <Pause size={20} />
-                                                {subscription.pausesRemaining > 0 ? 'PAUSE PLAN' : 'NO PAUSES LEFT'}
-                                            </button>
-                                            <button
-                                                onClick={() => setShowAddonModal({ ...showAddonModal, targetSubId: subscription.id })} // Hack to trigger generic modal for specific sub? Actually let's just use the side panel
-                                                className="flex-1 flex items-center justify-center gap-2 py-3 md:py-4 border-3 border-black rounded-xl font-heading bg-quirky-blue text-white hover:bg-blue-400"
-                                            >
-                                                <Plus size={20} /> ADD ITEMS
-                                            </button>
+                                        <div className="flex flex-col sm:flex-row gap-4 mb-4">
+                                            {/* Action Buttons */}
+                                            <div className="flex gap-3 mt-6">
+                                                <button
+                                                    onClick={() => handlePauseToggle(sub)}
+                                                    className="flex-1 py-3 px-4 border-2 border-black rounded-xl font-heading text-sm flex items-center justify-center gap-2 hover:bg-gray-50 transition-colors shadow-hard uppercase"
+                                                >
+                                                    {sub.status === 'PAUSED' ? <Play size={18} /> : <Pause size={18} />}
+                                                    {sub.status === 'PAUSED' ? 'RESUME PLAN' : 'PAUSE PLAN'}
+                                                </button>
+
+                                                {/* Cancel Button - Replaces Add Items */}
+                                                {sub.totalDays > 6 && (
+                                                    <button
+                                                        onClick={() => handleCancelClick(sub)}
+                                                        className="flex-1 py-3 px-4 bg-red-100 border-2 border-black rounded-xl font-heading text-sm text-red-600 flex items-center justify-center gap-2 hover:bg-red-200 transition-colors shadow-hard uppercase"
+                                                    >
+                                                        <X size={18} />
+                                                        CANCEL PLAN
+                                                    </button>
+                                                )}
+                                            </div>
+                                        </div>
+
+                                        {/* RIGHT SIDE: Today's Delivery Status */}
+                                        <div className="md:col-span-1 space-y-4">
+                                            <div className={`p-6 border-2 border-black rounded-2xl shadow-hard ${getTodayDeliveryStatus(sub)?.status === 'OUT_FOR_DELIVERY' || getTodayDeliveryStatus(sub)?.status === 'ASSIGNED'
+                                                ? 'bg-quirky-green'
+                                                : 'bg-white'
+                                                }`}>
+                                                <div className="flex justify-between items-start mb-4">
+                                                    <div className="p-2 bg-black/5 rounded-lg border border-black/10">
+                                                        <Truck size={24} className="text-black" />
+                                                    </div>
+                                                    <span className="font-heading text-xs bg-black text-white px-2 py-1 rounded">
+                                                        {new Date().toLocaleDateString()}
+                                                    </span>
+                                                </div>
+
+                                                <h3 className="font-heading text-xl mb-1">TODAY'S DROP 📦</h3>
+
+                                                {(() => {
+                                                    const todayLog = getTodayDeliveryStatus(sub);
+                                                    if (todayLog) {
+                                                        if (todayLog.status === 'DELIVERED') return <p className="font-bold text-green-700">DELIVERED ✅</p>;
+                                                        if (todayLog.status === 'OUT_FOR_DELIVERY' || todayLog.status === 'ASSIGNED') return (
+                                                            <div>
+                                                                <p className="font-bold text-black text-lg animate-pulse">FOOD IS ON THE WAY!</p>
+                                                                {todayLog.deliveryAgent && (
+                                                                    <p className="text-sm mt-1 font-medium">Rider: {todayLog.deliveryAgent.name}</p>
+                                                                )}
+                                                            </div>
+                                                        );
+                                                        return <p className="font-bold text-slate-500">PREPARING... 🍳</p>;
+                                                    } else if (sub.status === 'ACTIVE') {
+                                                        return <p className="font-bold text-slate-500">SCHEDULED</p>;
+                                                    } else {
+                                                        return <p className="font-bold text-slate-400">NO DELIVERY (PAUSED)</p>;
+                                                    }
+                                                })()}
+                                            </div>
+
+                                            {/* Delivery History List (Mini) */}
+                                            <div className="bg-white border-2 border-black rounded-2xl shadow-hard overflow-hidden">
+                                                <div className="p-4 border-b-2 border-black bg-gray-50">
+                                                    <h3 className="font-heading text-lg">DELIVERY HISTORY 🚚</h3>
+                                                </div>
+                                                <div className="max-h-[200px] overflow-y-auto p-2 space-y-2">
+                                                    {sub.deliveryLogs && sub.deliveryLogs.length > 0 ? (
+                                                        sub.deliveryLogs.slice(0, 10).map((log: any) => (
+                                                            <div key={log.id} className="flex justify-between items-center p-3 bg-white border border-black rounded-lg text-sm hover:bg-gray-50">
+                                                                <div>
+                                                                    <p className="font-bold">{new Date(log.deliveryTime).toLocaleDateString()}</p>
+                                                                    {log.deliveryAgent && <p className="text-xs text-slate-500">Via {log.deliveryAgent.name}</p>}
+                                                                </div>
+                                                                <span className={`px-2 py-1 rounded text-[10px] font-bold border border-black ${log.status === 'DELIVERED' ? 'bg-green-200' : 'bg-yellow-200'
+                                                                    }`}>
+                                                                    {log.status}
+                                                                </span>
+                                                            </div>
+                                                        ))
+                                                    ) : (
+                                                        <p className="text-center py-4 text-slate-400 text-sm">No recent deliveries.</p>
+                                                    )}
+                                                </div>
+                                            </div>
                                         </div>
                                     </div>
                                 ))
@@ -307,34 +413,6 @@ export const ClientDashboard: React.FC<ClientDashboardProps> = ({ onBack }) => {
                                 </div>
                             )}
                         </div>
-
-                        {/* Quick Add-ons */}
-                        <div className="bg-quirky-pink border-4 border-black rounded-3xl p-6 md:p-8 shadow-hard text-white relative">
-                            <h3 className="font-heading text-2xl mb-6 border-b-4 border-white pb-2">NEED A BOOST?</h3>
-                            <div className="space-y-4">
-                                {backendAddons.map((addon) => (
-                                    <div key={addon.id} className="bg-white text-black p-4 rounded-xl border-2 border-black flex justify-between items-center group hover:scale-105 transition-transform">
-                                        <div className="flex items-center gap-3">
-                                            <img src={getAddonImageUrl(addon.name, (addon as any).thumbnail || addon.image)} alt={addon.name} className="w-12 h-12 rounded-lg object-cover border border-black/10" />
-                                            <div>
-                                                <div className="font-heading text-lg">{addon.name}</div>
-                                                <div className="font-heading text-sm text-quirky-pink">₹{addon.price}</div>
-                                            </div>
-                                        </div>
-                                        <button
-                                            onClick={() => setShowAddonModal(addon)}
-                                            className="bg-quirky-green border-2 border-black p-2 rounded-lg hover:bg-green-400"
-                                        >
-                                            <Plus size={20} />
-                                        </button>
-                                    </div>
-                                ))}
-                            </div>
-                            <p className="mt-6 text-xs font-bold text-center opacity-80">
-                                Added items will be delivered with your next meal.
-                            </p>
-                        </div>
-
                     </div>
                 )}
 
@@ -388,39 +466,26 @@ export const ClientDashboard: React.FC<ClientDashboardProps> = ({ onBack }) => {
 
             </div>
 
-            {/* PAUSE MODAL */}
-            {showPauseModal && (
+            {/* CANCEL REASON MODAL */}
+            {showCancelModal && (
                 <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm animate-in fade-in">
-                    <div className="bg-white border-4 border-black p-6 md:p-8 rounded-3xl max-w-md w-full shadow-hard-xl transform -rotate-1 relative">
-                        <button onClick={() => setShowPauseModal(false)} className="absolute top-4 right-4 hover:scale-110 transition-transform p-2">X</button>
-                        <h3 className="font-heading text-2xl mb-4 text-center">PAUSE PLAN ⏸️</h3>
+                    <div className="bg-white border-4 border-black p-6 md:p-8 rounded-3xl max-w-md w-full shadow-hard-xl transform rotate-1 relative">
+                        <button onClick={() => setShowCancelModal(null)} className="absolute top-4 right-4 hover:scale-110 transition-transform p-2">X</button>
+                        <h3 className="font-heading text-2xl mb-4 text-center text-red-500">CANCEL PLAN? 😢</h3>
+                        <p className="text-gray-600 mb-4 text-sm text-center">We're sad to see you go. Please tell us why you are cancelling so we can improve.</p>
+
                         <div className="space-y-4">
-                            <div>
-                                <label className="block text-xs font-bold uppercase mb-1">Start Date</label>
-                                <input
-                                    type="date"
-                                    value={pauseConfig.date}
-                                    onChange={(e) => setPauseConfig({ ...pauseConfig, date: e.target.value })}
-                                    className="w-full p-3 border-2 border-black rounded-lg font-body"
-                                    min={new Date(Date.now() + 86400000).toISOString().split('T')[0]}
-                                />
-                                <p className="text-[10px] text-gray-500 mt-1">Must be at least 1 day in advance (before 4PM).</p>
-                            </div>
-                            <div>
-                                <label className="block text-xs font-bold uppercase mb-1">Duration (Days)</label>
-                                <select
-                                    value={pauseConfig.days}
-                                    onChange={(e) => setPauseConfig({ ...pauseConfig, days: Number(e.target.value) })}
-                                    className="w-full p-3 border-2 border-black rounded-lg font-body"
-                                >
-                                    {[1, 2, 3, 4, 5, 6].map(d => <option key={d} value={d}>{d} Days</option>)}
-                                </select>
-                            </div>
+                            <textarea
+                                value={cancelReason}
+                                onChange={(e) => setCancelReason(e.target.value)}
+                                placeholder="I'm cancelling because..."
+                                className="w-full p-3 border-2 border-black rounded-xl font-body min-h-[100px]"
+                            />
                             <button
-                                onClick={handlePauseSubmit}
-                                className="w-full py-3 bg-quirky-yellow border-2 border-black rounded-xl font-heading hover:bg-yellow-400 shadow-hard mt-4"
+                                onClick={handleCancelSubmit}
+                                className="w-full py-3 bg-red-400 text-white border-2 border-black rounded-xl font-heading hover:bg-red-500 shadow-hard"
                             >
-                                CONFIRM PAUSE
+                                CONFIRM CANCELLATION
                             </button>
                         </div>
                     </div>

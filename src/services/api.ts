@@ -41,7 +41,9 @@ export const admin = {
     getUsers: (page = 1, limit = 10, search = '') => api.get(`/admin/users?page=${page}&limit=${limit}&search=${encodeURIComponent(search)}`),
     getStats: () => api.get('/admin/stats'),
     createUser: (data: any) => api.post('/admin/users', data),
+    updateUser: (id: string, data: any) => api.put(`/admin/users/${id}`, data),
     deleteUser: (id: string) => api.delete(`/admin/users/${id}`),
+    getDeliveryHistory: (date: string) => api.get(`/admin/delivery-history?date=${date}`),
 
     // Subscriptions
     updateSubscription: (id: number, data: any) => api.put(`/admin/subscriptions/${id}`, data),
@@ -75,8 +77,8 @@ export const admin = {
 
     // Delivery Assignment
     getDeliveryPartners: () => api.get('/admin/delivery-partners'),
-    assignDelivery: (subscriptionId: number, deliveryUserId: number) => api.post('/admin/assign-delivery', { subscriptionId, deliveryUserId }),
-    markReady: (subscriptionId: number) => api.post('/admin/mark-ready', { subscriptionId }),
+    assignDelivery: (subscriptionId: number, deliveryUserId: number, mealType?: string) => api.post('/admin/assign-delivery', { subscriptionId, deliveryUserId, mealType }),
+    markReady: (subscriptionId: number, mealType?: string) => api.post('/admin/mark-ready', { subscriptionId, mealType }),
 };
 
 export const delivery = {

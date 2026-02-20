@@ -14,17 +14,41 @@ import { getDistanceKm } from '../utils/haversine';
 import sequelize from '../config/database';
 
 import MenuItem from '../models/MenuItem';
+import Notification from '../models/Notification';
+import User from '../models/User';
 
 export const createOrder = async (req: Request, res: Response) => {
+    // --- Helper Functions ---
+    const getMealDiscountPercentage = (d: number) => {
+        if (d <= 6) return 0;
+        if (d <= 12) return 0.03;
+        if (d <= 18) return 0.05;
+        return 0.07;
+    };
+
+    const getKefirDiscountPercentage = (d: number) => {
+        if (d <= 6) return 0;
+        if (d <= 12) return 0.10;
+        if (d <= 18) return 0.20;
+        return 0.275;
+    };
+
     const t = await sequelize.transaction();
     try {
         const userId = (req as any).user.id; // JWT stores 'id' not 'userId'
-        const { protein, days, mealsPerDay, startDate, deliveryLat, deliveryLng, deliveryAddress, addons, notes } = req.body;
+        const { protein, days, mealsPerDay, startDate, deliveryLat, deliveryLng, deliveryAddress, addons, notes, mealTypes } = req.body;
 
         // --- VALIDATION ---
         if (!protein || !days || !mealsPerDay || !startDate) {
             await t.rollback();
             return res.status(400).json({ message: 'Missing required fields: protein, days, mealsPerDay, startDate' });
+        }
+
+        // Validate mealTypes if provided, else default based on mealsPerDay
+        let finalMealTypes = mealTypes;
+        if (!finalMealTypes || !Array.isArray(finalMealTypes) || finalMealTypes.length === 0) {
+            // Fallback logic
+            finalMealTypes = mealsPerDay === 2 ? ['LUNCH', 'DINNER'] : ['LUNCH'];
         }
 
         // --- SERVICE AREA CHECK ---
@@ -93,13 +117,63 @@ export const createOrder = async (req: Request, res: Response) => {
         }
 
         // Calculate price server-side for security
-        const totalPrice = baseRate * days * mealsPerDay;
+        // Use finalMealTypes length instead of just mealsPerDay to be safe
+        const calculatedMealsPerDay = finalMealTypes.length;
+
+        // Base Price with Discount
+        const rawBasePrice = baseRate * days * calculatedMealsPerDay;
+        const discount = getMealDiscountPercentage(days);
+        const discountedBasePrice = Math.round(rawBasePrice * (1 - discount));
+
+        let addOnTotal = 0;
+        // Verify Addons Price if possible, or trust frontend but apply Kefir logic?
+        // Ideally we should fetch Addon prices. But `addons` in body is just definitions/selections.
+        // We need to iterate addons and calculate total.
+        // Current implementation seems to rely on frontend for total?
+        // Wait, existing code: `const totalPrice = baseRate * days * calculatedMealsPerDay;`
+        // It completely IGNORED addons in the total price calculation! That seems like a bug in existing code or simplistic implementation.
+        // Reading `orderController.ts` again...
+        // It creates order with `totalPrice`.
+        // It does NOT add addon prices to `totalPrice`.
+        // The user request is about pricing logic. I should fix this to include addons if I can, OR just update the base part as requested.
+        // Given the requirement is specific about "pricing logic", I should probably respect the existing pattern but I can't leave it broken if it was broken.
+        // However, looking at the previous code, it seems the order total was ONLY the meal plan?
+        // Let's look at frontend: `grandTotal = basePlanTotal + addonTotal + deliveryFee`.
+        // The backend `createOrder` receives `totalPrice`? No, it calculates it!
+        // See line 105: `const totalPrice = baseRate * days * calculatedMealsPerDay;`
+        // It ignores Addons!
+        // I should fix this to include addons.
+
+        // Need to loop through provided addons to calculate price
+        if (addons && typeof addons === 'object') {
+            for (const [addonId, selection] of Object.entries(addons)) {
+                const sel = selection as any;
+                if (sel.quantity > 0) {
+                    const addonDef = await import('../models/AddOn').then(m => m.default.findByPk(addonId));
+                    if (addonDef) {
+                        let price = addonDef.price;
+                        if (addonDef.name.toLowerCase().includes('kefir')) {
+                            price = Math.round(price * (1 - getKefirDiscountPercentage(days)));
+                        }
+
+                        if (sel.frequency === 'daily') {
+                            addOnTotal += price * sel.quantity * days;
+                        } else {
+                            addOnTotal += price * sel.quantity;
+                        }
+                    }
+                }
+            }
+        }
+
+        const deliveryFee = days <= 5 ? 50 * days : 300;
+        const totalPrice = discountedBasePrice + addOnTotal + deliveryFee;
 
         const order = await Order.create({
             userId,
             protein,
             days,
-            mealsPerDay,
+            mealsPerDay: calculatedMealsPerDay,
             totalPrice,
             startDate,
             deliveryLat,
@@ -107,7 +181,8 @@ export const createOrder = async (req: Request, res: Response) => {
             deliveryAddress,
             status: 'PAID', // Auto-completing for now as we don't have a real payment gateway
             addons,
-            notes
+            notes,
+            mealTypes: finalMealTypes
         }, { transaction: t });
 
         // Create subscription if paid
@@ -124,18 +199,35 @@ export const createOrder = async (req: Request, res: Response) => {
             status: 'ACTIVE',
             daysRemaining: days,
             protein,
-            mealsPerDay,
+            mealsPerDay: calculatedMealsPerDay,
             pausesRemaining: days > 7 ? 2 : 0,
             deliveryAddress,
-            addons
+            addons,
+            mealTypes: finalMealTypes
         }, { transaction: t });
 
-        await t.commit();
+        // Create Notification for Admins
+        const admins = await User.findAll({ where: { role: 'admin' } });
+        const customer = await User.findByPk(userId);
+        const customerName = customer ? customer.name : 'Unknown';
+
+        const notificationPromises = admins.map(admin => {
+            return Notification.create({
+                userId: admin.id,
+                title: 'New Order! 🥗',
+                message: `New Order: ${order.protein} (${finalMealTypes.join(' & ')}) for ${order.days} ${order.days === 1 ? 'Day' : 'Days'}. Customer: ${customerName}.`,
+                type: 'info'
+            });
+        });
+        await Promise.all(notificationPromises);
+
+        await t.commit(); // Commit transaction only after everything succeeds
+
         res.status(201).json({ message: 'Order created successfully', order });
-    } catch (error) {
+    } catch (error: any) {
         await t.rollback();
-        console.error("Create Order Error:", error);
-        res.status(500).json({ message: 'Failed to create order', error });
+        console.error("Order creation error:", error);
+        res.status(500).json({ message: 'Error creating order', error: error.message });
     }
 };
 
@@ -152,12 +244,31 @@ export const getUserOrders = async (req: Request, res: Response) => {
 export const getActiveSubscription = async (req: Request, res: Response) => {
     try {
         const userId = (req as any).user.id;
+        const DeliveryLog = await import('../models/DeliveryLog').then(m => m.default);
+        const User = await import('../models/User').then(m => m.default); // Ensure User is available
+
         const subscriptions = await Subscription.findAll({
-            where: { userId, status: 'ACTIVE' },
+            where: { userId, status: { [Op.in]: ['ACTIVE', 'PAUSED'] } }, // Fetch PAUSED too as per recent changes
+            include: [
+                {
+                    model: DeliveryLog,
+                    as: 'deliveryLogs',
+                    required: false,
+                    include: [
+                        {
+                            model: User,
+                            as: 'deliveryAgent',
+                            attributes: ['name', 'phone'], // Fetch rider details
+                            required: false
+                        }
+                    ]
+                }
+            ],
             order: [['createdAt', 'DESC']]
         });
         res.status(200).json(subscriptions); // Returns array
-    } catch (error) {
-        res.status(500).json({ message: 'Failed to fetch subscriptions', error });
+    } catch (error: any) {
+        console.error("Error fetching active subscription:", error);
+        res.status(500).json({ message: 'Failed to fetch subscriptions', error: error.message });
     }
 };

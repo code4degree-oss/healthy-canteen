@@ -15,9 +15,10 @@ import { User, LogIn, LogOut } from 'lucide-react';
 import { GoogleOAuthProvider } from '@react-oauth/google';
 import { auth } from './src/services/api';
 import { PoliciesPage } from './components/PoliciesPage';
+import MarketingPopup from './components/MarketingPopup';
 
 // Protected Route Component
-const ProtectedRoute: React.FC<{ children: JSX.Element; allowedRoles?: string[] }> = ({ children, allowedRoles }) => {
+const ProtectedRoute: React.FC<{ children: React.ReactNode; allowedRoles?: string[] }> = ({ children, allowedRoles }) => {
   const user = JSON.parse(localStorage.getItem('user') || '{}');
   const token = localStorage.getItem('token');
 
@@ -125,9 +126,7 @@ const AppContent: React.FC = () => {
       } />
 
       <Route path="/order" element={
-        <ProtectedRoute allowedRoles={['user', 'client', 'admin']}>
-          <OrderFlowPage onBack={() => navigate('/')} />
-        </ProtectedRoute>
+        <OrderFlowPage onBack={() => navigate('/')} />
       } />
 
       <Route path="/admin" element={
@@ -176,7 +175,7 @@ const HomePage: React.FC<HomePageProps> = ({ scrolled, isLoggedIn, onLogout, onG
       </div>
 
       {/* Navbar */}
-      <nav className="fixed top-2 md:top-4 left-0 right-0 z-50 transition-all duration-300 pointer-events-none flex justify-between items-center px-4 md:px-8">
+      <nav className="absolute top-2 md:top-4 left-0 right-0 z-50 transition-all duration-300 pointer-events-none flex justify-between items-center px-4 md:px-8">
         {/* Logo on far left */}
         <div onClick={() => window.scrollTo({ top: 0, behavior: 'smooth' })} className="pointer-events-auto cursor-pointer shrink-0">
           <img src="/logo-green-full.png" alt="The Healthy Canteen" className="h-16 md:h-24 w-auto object-contain drop-shadow-md py-1" />
@@ -185,14 +184,6 @@ const HomePage: React.FC<HomePageProps> = ({ scrolled, isLoggedIn, onLogout, onG
         {/* Pill navbar moved to right */}
         <div className={`pointer-events-auto px-4 py-2 rounded-full flex items-center gap-2 md:gap-4 transition-all duration-300 bg-white border-2 border-quirky-black overflow-x-auto no-scrollbar ${scrolled ? 'shadow-hard scale-95' : 'shadow-none'}`}>
           {/* Removed text Logo based on sketch feedback */}
-
-          {/* Moved JOIN NOW logic inside or keep same? User said "pill shape have to move right". Let's keep content same but move container right. */}
-          <button
-            className="px-3 py-1.5 md:px-4 md:py-1.5 rounded-full transition-colors text-[10px] md:text-xs font-bold bg-quirky-green text-quirky-black font-heading border border-quirky-black hover:bg-green-400 shrink-0 whitespace-nowrap"
-            onClick={() => navigate('/order')}
-          >
-            JOIN NOW
-          </button>
 
           {/* User / Login Button */}
           {isLoggedIn ? (
@@ -248,6 +239,7 @@ const HomePage: React.FC<HomePageProps> = ({ scrolled, isLoggedIn, onLogout, onG
       </main>
 
       <Footer />
+      <MarketingPopup />
 
       {/* Global CSS for Marquee */}
       <style>{`

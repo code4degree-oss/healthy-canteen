@@ -54,6 +54,11 @@ DeliveryLog.init(
             type: DataTypes.STRING,
             defaultValue: 'PENDING', // PENDING -> ASSIGNED -> OUT_FOR_DELIVERY -> DELIVERED
         },
+        mealType: {
+            type: DataTypes.STRING, // 'LUNCH' or 'DINNER'
+            allowNull: true, // Nullable for backward compatibility
+            defaultValue: 'LUNCH'
+        }
     },
     {
         sequelize,

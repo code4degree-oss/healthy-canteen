@@ -56,3 +56,17 @@ input[type=range]::-webkit-slider-runnable-track {
   border-radius: 5px;
   border: 2px solid black;
 }
+
+/* --- Map Marker Pulse Animation --- */
+@keyframes pulse {
+    0% { transform: scale(1); }
+    50% { transform: scale(1.1); }
+    100% { transform: scale(1); }
+}
+
+.outlet-marker {
+    animation: pulse 2s infinite;
+    transform-origin: bottom center; 
+    filter: drop-shadow(0 4px 6px rgba(0,0,0,0.3));
+    cursor: pointer;
+}
