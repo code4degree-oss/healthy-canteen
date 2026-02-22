@@ -189,7 +189,8 @@ export const getDeliveryHistory = async (req: Request, res: Response) => {
                 status: log.status,
                 deliveryTime: log.deliveryTime,
                 latitude: log.latitude,
-                longitude: log.longitude
+                longitude: log.longitude,
+                phone: sub?.User?.phone || 'N/A'
             };
         });
 

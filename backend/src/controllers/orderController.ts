@@ -36,7 +36,7 @@ export const createOrder = async (req: Request, res: Response) => {
     const t = await sequelize.transaction();
     try {
         const userId = (req as any).user.id; // JWT stores 'id' not 'userId'
-        const { protein, days, mealsPerDay, startDate, deliveryLat, deliveryLng, deliveryAddress, addons, notes, mealTypes } = req.body;
+        const { protein, days, mealsPerDay, startDate, deliveryLat, deliveryLng, deliveryAddress, addons, notes, mealTypes, phone, name } = req.body;
 
         // --- VALIDATION ---
         if (!protein || !days || !mealsPerDay || !startDate) {
@@ -201,10 +201,32 @@ export const createOrder = async (req: Request, res: Response) => {
             protein,
             mealsPerDay: calculatedMealsPerDay,
             pausesRemaining: days > 7 ? 2 : 0,
-            deliveryAddress,
-            addons,
-            mealTypes: finalMealTypes
+            addons: addons,
+            notes: notes,
+            mealTypes: finalMealTypes,
+            deliveryAddress: deliveryAddress
         }, { transaction: t });
+
+        // Update User Profile with Address, Phone, and Name if missing or changed during checkout
+        const user = await User.findByPk(userId, { transaction: t });
+        if (user) {
+            let updated = false;
+            if (deliveryAddress && user.address !== deliveryAddress) {
+                user.address = deliveryAddress;
+                updated = true;
+            }
+            if (phone && user.phone !== phone) {
+                user.phone = phone;
+                updated = true;
+            }
+            if (name && user.name !== name) {
+                user.name = name;
+                updated = true;
+            }
+            if (updated) {
+                await user.save({ transaction: t });
+            }
+        }
 
         // Create Notification for Admins
         const admins = await User.findAll({ where: { role: 'admin' } });
