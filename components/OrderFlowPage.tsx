@@ -456,7 +456,9 @@ export const OrderFlowPage: React.FC<OrderFlowPageProps> = ({ onBack }) => {
                 deliveryAddress: form.flatDetails,
                 addons: addons,
                 notes: notes,
-                mealTypes: selectedMeals
+                mealTypes: selectedMeals,
+                phone: form.phone,
+                name: form.name
             };
 
             await orders.create(orderData);

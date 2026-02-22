@@ -30,6 +30,7 @@ interface HistoryItem {
     deliveryTime: string;
     latitude?: number;
     longitude?: number;
+    phone?: string;
 }
 
 export const DeliveryDashboard: React.FC<DeliveryDashboardProps> = ({ onBack }) => {
@@ -201,8 +202,8 @@ export const DeliveryDashboard: React.FC<DeliveryDashboardProps> = ({ onBack }) 
                                                     }
                                                 }}
                                                 className={`flex items-center justify-center gap-2 py-2.5 border-2 rounded-lg text-sm font-semibold transition-colors shadow-sm ${item.phone && item.phone !== 'N/A'
-                                                        ? 'bg-white border-gray-200 text-gray-700 hover:bg-gray-50'
-                                                        : 'bg-gray-100 border-gray-200 text-gray-400 cursor-not-allowed'
+                                                    ? 'bg-white border-gray-200 text-gray-700 hover:bg-gray-50'
+                                                    : 'bg-gray-100 border-gray-200 text-gray-400 cursor-not-allowed'
                                                     }`}
                                             >
                                                 <Phone size={16} />
@@ -283,6 +284,11 @@ export const DeliveryDashboard: React.FC<DeliveryDashboardProps> = ({ onBack }) 
                                             <p className="text-xs text-slate-500 flex items-center gap-1 mt-0.5">
                                                 <MapPin size={12} /> {item.address}
                                             </p>
+                                            {item.phone && item.phone !== 'N/A' && (
+                                                <a href={`tel:${item.phone}`} className="text-xs text-blue-500 flex items-center gap-1 mt-0.5 hover:underline">
+                                                    <Phone size={12} /> {item.phone}
+                                                </a>
+                                            )}
                                         </div>
                                         <div className="text-right">
                                             <span className={`text-[10px] font-bold px-2 py-0.5 rounded ${item.status === 'DELIVERED'
