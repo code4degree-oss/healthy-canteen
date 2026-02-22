@@ -119,10 +119,19 @@ export const ClientDashboard: React.FC<ClientDashboardProps> = ({ onBack }) => {
 
     const handleCancelClick = (sub: UserSubscription) => {
         // Double check duration rule clientside (though backend enforces it)
-        if (sub.totalDays <= 6) {
+        if (!sub.totalDays || sub.totalDays <= 6) {
             alert("Cancellation is only available for plans longer than 6 days.");
             return;
         }
+
+        const referenceDate = new Date(sub.startDate);
+        const diffInDays = (new Date().getTime() - referenceDate.getTime()) / (1000 * 3600 * 24);
+
+        if (diffInDays > 3) {
+            alert("Cancellation is only available within 3 days of the 1st meal day.");
+            return;
+        }
+
         setShowCancelModal(sub.id);
         setCancelReason('');
     };
@@ -328,15 +337,23 @@ export const ClientDashboard: React.FC<ClientDashboardProps> = ({ onBack }) => {
                                                 </button>
 
                                                 {/* Cancel Button - Replaces Add Items */}
-                                                {sub.totalDays > 6 && (
-                                                    <button
-                                                        onClick={() => handleCancelClick(sub)}
-                                                        className="flex-1 py-3 px-4 bg-red-100 border-2 border-black rounded-xl font-heading text-sm text-red-600 flex items-center justify-center gap-2 hover:bg-red-200 transition-colors shadow-hard uppercase"
-                                                    >
-                                                        <X size={18} />
-                                                        CANCEL PLAN
-                                                    </button>
-                                                )}
+                                                {(() => {
+                                                    const referenceDate = new Date(sub.startDate);
+                                                    const diffInDays = (new Date().getTime() - referenceDate.getTime()) / (1000 * 3600 * 24);
+                                                    const isCancelable = sub.totalDays && sub.totalDays > 6 && diffInDays <= 3;
+
+                                                    if (!isCancelable) return null;
+
+                                                    return (
+                                                        <button
+                                                            onClick={() => handleCancelClick(sub)}
+                                                            className="flex-1 py-3 px-4 bg-red-100 border-2 border-black rounded-xl font-heading text-sm text-red-600 flex items-center justify-center gap-2 hover:bg-red-200 transition-colors shadow-hard uppercase"
+                                                        >
+                                                            <X size={18} />
+                                                            CANCEL PLAN
+                                                        </button>
+                                                    );
+                                                })()}
                                             </div>
                                         </div>
 

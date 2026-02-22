@@ -246,6 +246,7 @@ export const getActiveSubscription = async (req: Request, res: Response) => {
         const userId = (req as any).user.id;
         const DeliveryLog = await import('../models/DeliveryLog').then(m => m.default);
         const User = await import('../models/User').then(m => m.default); // Ensure User is available
+        const Order = await import('../models/Order').then(m => m.default); // Import Order
 
         const subscriptions = await Subscription.findAll({
             where: { userId, status: { [Op.in]: ['ACTIVE', 'PAUSED'] } }, // Fetch PAUSED too as per recent changes
@@ -262,11 +263,24 @@ export const getActiveSubscription = async (req: Request, res: Response) => {
                             required: false
                         }
                     ]
+                },
+                {
+                    model: Order,
+                    attributes: ['days', 'createdAt']
                 }
             ],
             order: [['createdAt', 'DESC']]
         });
-        res.status(200).json(subscriptions); // Returns array
+
+        const result = subscriptions.map((s: any) => {
+            const sub = s.toJSON();
+            if (sub.Order) {
+                sub.totalDays = sub.Order.days;
+            }
+            return sub;
+        });
+
+        res.status(200).json(result); // Returns array
     } catch (error: any) {
         console.error("Error fetching active subscription:", error);
         res.status(500).json({ message: 'Failed to fetch subscriptions', error: error.message });
