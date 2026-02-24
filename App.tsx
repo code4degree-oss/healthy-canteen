@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useCallback } from 'react';
 import { BrowserRouter, Routes, Route, useNavigate, Navigate } from 'react-router-dom';
 import { HeroSection } from './components/HeroSection';
 import { MenuShowcase } from './components/MenuShowcase';
@@ -80,7 +80,7 @@ const AppContent: React.FC = () => {
     return () => window.removeEventListener('scroll', handleScroll);
   }, []);
 
-  const handleLoginSuccess = (user: any) => {
+  const handleLoginSuccess = useCallback((user: any) => {
     setIsLoggedIn(true);
     if (user.role === 'admin') {
       navigate('/admin');
@@ -89,21 +89,21 @@ const AppContent: React.FC = () => {
     } else {
       navigate('/client');
     }
-  };
+  }, [navigate]);
 
-  const handleLogout = () => {
+  const handleLogout = useCallback(() => {
     localStorage.removeItem('token');
     localStorage.removeItem('user');
     setIsLoggedIn(false);
     navigate('/');
-  };
+  }, [navigate]);
 
-  const goToDashboard = () => {
+  const goToDashboard = useCallback(() => {
     const user = JSON.parse(localStorage.getItem('user') || '{}');
     if (user.role === 'admin') navigate('/admin');
     else if (user.role === 'delivery') navigate('/delivery');
     else navigate('/client');
-  };
+  }, [navigate]);
 
   // Show loading while checking auth
   if (!authChecked) {

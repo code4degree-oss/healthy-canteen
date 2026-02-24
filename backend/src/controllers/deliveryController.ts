@@ -65,9 +65,9 @@ export const confirmDelivery = async (req: Request, res: Response) => {
         }
 
         // Find existing log for today (created by markReady/assignDelivery)
-        const today = new Date();
-        const startOfDay = new Date(new Date().setHours(0, 0, 0, 0));
-        const endOfDay = new Date(new Date().setHours(23, 59, 59, 999));
+        const now = new Date();
+        const startOfDay = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 0, 0, 0, 0);
+        const endOfDay = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 23, 59, 59, 999);
 
         let log = await DeliveryLog.findOne({
             where: {

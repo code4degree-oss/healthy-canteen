@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import { BASE_RATES, SUBSCRIPTION_RATES, DELIVERY_FEE_MONTHLY } from '../constants';
 import { settings } from '../src/services/api';
 import { getDistanceKm } from '../src/utils/haversine';
@@ -21,6 +21,47 @@ declare global {
         google: any;
     }
 }
+
+// --- Pure Helpers (no component state dependencies) ---
+const getMealDiscountPercentage = (d: number) => {
+    if (d <= 6) return 0;
+    if (d <= 12) return 0.03;
+    if (d <= 18) return 0.05;
+    return 0.07;
+};
+
+const getKefirDiscountPercentage = (d: number) => {
+    if (d <= 6) return 0;
+    if (d <= 12) return 0.10;
+    if (d <= 18) return 0.20;
+    return 0.275;
+};
+
+const getImageUrl = (name: string, imagePath?: string) => {
+    if (imagePath) {
+        if (imagePath.startsWith('http://') || imagePath.startsWith('https://')) return imagePath;
+        return `${BASE_URL}${imagePath}`;
+    }
+    const lower = name.toLowerCase();
+    if (lower.includes('chicken')) return "https://images.unsplash.com/photo-1604908176997-125f25cc6f3d?q=80&w=800&auto=format&fit=crop";
+    if (lower.includes('paneer')) return "https://images.unsplash.com/photo-1565557623262-b51c2513a641?q=80&w=800&auto=format&fit=crop";
+    if (lower.includes('vegan') || lower.includes('veg') || lower.includes('salad')) return "https://images.unsplash.com/photo-1512621776951-a57141f2eefd?q=80&w=800&auto=format&fit=crop";
+    if (lower.includes('fish')) return "https://images.unsplash.com/photo-1519708227418-c8fd9a3a1b78?q=80&w=800&auto=format&fit=crop";
+    if (lower.includes('egg')) return "https://images.unsplash.com/photo-1482049016688-2d3e1b311543?q=80&w=800&auto=format&fit=crop";
+    return "https://images.unsplash.com/photo-1546069901-ba9599a7e63c?q=80&w=800&auto=format&fit=crop";
+};
+
+const getAddonImageUrl = (name: string, imagePath?: string) => {
+    if (imagePath) {
+        if (imagePath.startsWith('http://') || imagePath.startsWith('https://')) return imagePath;
+        return `${BASE_URL}${imagePath}`;
+    }
+    const lower = name.toLowerCase();
+    if (lower.includes('kefir')) return "https://images.unsplash.com/photo-1563227812-0ea4c22e6cc8?q=80&w=800&auto=format&fit=crop";
+    if (lower.includes('cookie')) return "https://images.unsplash.com/photo-1499636138143-bd649043ea52?q=80&w=800&auto=format&fit=crop";
+    if (lower.includes('drink') || lower.includes('juice')) return "https://images.unsplash.com/photo-1513558161293-cdaf765ed2fd?q=80&w=800&auto=format&fit=crop";
+    return "https://images.unsplash.com/photo-1550989460-0adf9ea622e2?q=80&w=800&auto=format&fit=crop";
+};
 
 // Dynamic Map Loader
 const loadGoogleMaps = (apiKey: string) => {
@@ -67,12 +108,16 @@ export const OrderFlowPage: React.FC<OrderFlowPageProps> = ({ onBack }) => {
     const [loadingMenu, setLoadingMenu] = useState(true);
 
     const [addons, setAddons] = useState<Record<string, AddOnSelection>>({});
-    const getMinDate = () => {
+    const minDate = useMemo(() => {
         const d = new Date();
         d.setDate(d.getDate() + 2);
         return d.toISOString().split('T')[0];
-    };
-    const [startDate, setStartDate] = useState<string>(getMinDate());
+    }, []);
+    const [startDate, setStartDate] = useState<string>(() => {
+        const d = new Date();
+        d.setDate(d.getDate() + 2);
+        return d.toISOString().split('T')[0];
+    });
     const [notes, setNotes] = useState('');
 
     const [availableAddons, setAvailableAddons] = useState<AddOn[]>([]);
@@ -141,39 +186,25 @@ export const OrderFlowPage: React.FC<OrderFlowPageProps> = ({ onBack }) => {
                 ...prev,
                 name: user.name || '',
                 email: user.email || '',
-                phone: user.phone || ''
+                phone: user.phone || '',
+                flatDetails: user.address || ''
             }));
         }
     }, []);
 
-    // --- Discount Helpers ---
-    const getMealDiscountPercentage = (d: number) => {
-        if (d <= 6) return 0;
-        if (d <= 12) return 0.03;
-        if (d <= 18) return 0.05;
-        return 0.07;
-    };
-
-    const getKefirDiscountPercentage = (d: number) => {
-        if (d <= 6) return 0;
-        if (d <= 12) return 0.10;
-        if (d <= 18) return 0.20;
-        return 0.275;
-    };
-
-    // --- Calculations ---
-    const [basePlanTotal, setBasePlanTotal] = useState<number>(0);
-    const [originalBaseTotal, setOriginalBaseTotal] = useState<number>(0);
-
-    useEffect(() => {
-        if (!selectedItem) return;
-        const rawTotal = selectedItem.price * days * mealsPerDay;
-        const discount = getMealDiscountPercentage(days);
-        setOriginalBaseTotal(rawTotal);
-        setBasePlanTotal(Math.round(rawTotal * (1 - discount)));
+    // --- Calculations (useMemo instead of useState+useEffect to avoid extra re-renders) ---
+    const originalBaseTotal = useMemo(() => {
+        if (!selectedItem) return 0;
+        return selectedItem.price * days * mealsPerDay;
     }, [days, mealsPerDay, selectedItem]);
 
-    const calculateAddonTotal = () => {
+    const basePlanTotal = useMemo(() => {
+        if (!selectedItem) return 0;
+        const discount = getMealDiscountPercentage(days);
+        return Math.round(originalBaseTotal * (1 - discount));
+    }, [originalBaseTotal, days, selectedItem]);
+
+    const addonTotal = useMemo(() => {
         let total = 0;
         Object.keys(addons).forEach(key => {
             const selection = addons[key];
@@ -192,23 +223,22 @@ export const OrderFlowPage: React.FC<OrderFlowPageProps> = ({ onBack }) => {
             }
         });
         return total;
-    };
+    }, [addons, availableAddons, days]);
 
     // Delivery Fee: <= 5 days: 50 * days, > 5 days: 300 Fixed
     const deliveryFee = days <= 5 ? 50 * days : 300;
-    const addonTotal = calculateAddonTotal();
     const grandTotal = basePlanTotal + addonTotal + deliveryFee;
 
-    // --- Handlers ---
-    const updateAddon = (id: string, delta: number, frequency: 'once' | 'daily' = 'once') => {
+    // --- Handlers (wrapped in useCallback to prevent unnecessary re-renders) ---
+    const updateAddon = useCallback((id: string, delta: number, frequency: 'once' | 'daily' = 'once') => {
         setAddons(prev => {
             const current = prev[id]?.quantity || 0;
             const newQty = Math.max(0, current + delta);
             return { ...prev, [id]: { quantity: newQty, frequency } };
         });
-    };
+    }, []);
 
-    const handleAddonClick = (addon: AddOn) => {
+    const handleAddonClick = useCallback((addon: AddOn) => {
         const currentQty = addons[addon.id]?.quantity || 0;
         if (currentQty === 0) {
             setActiveAddonModal(addon);
@@ -216,14 +246,14 @@ export const OrderFlowPage: React.FC<OrderFlowPageProps> = ({ onBack }) => {
             const currentFreq = addons[addon.id]?.frequency || 'once';
             updateAddon(addon.id.toString(), 1, currentFreq);
         }
-    };
+    }, [addons, updateAddon]);
 
-    const handleModalSelection = (frequency: 'once' | 'daily') => {
+    const handleModalSelection = useCallback((frequency: 'once' | 'daily') => {
         if (activeAddonModal) {
             updateAddon(activeAddonModal.id, 1, frequency);
             setActiveAddonModal(null);
         }
-    };
+    }, [activeAddonModal, updateAddon]);
 
     // --- Fetch Service Area ---
     useEffect(() => {
@@ -588,33 +618,7 @@ export const OrderFlowPage: React.FC<OrderFlowPageProps> = ({ onBack }) => {
         </div>
     );
 
-    const getImageUrl = (name: string, imagePath?: string) => {
-        if (imagePath) {
-            // If it's already a full URL (http/https), use directly
-            if (imagePath.startsWith('http://') || imagePath.startsWith('https://')) return imagePath;
-            // If it's a relative path (e.g. /uploads/...), prepend BASE_URL
-            return `${BASE_URL}${imagePath}`;
-        }
-        const lower = name.toLowerCase();
-        if (lower.includes('chicken')) return "https://images.unsplash.com/photo-1604908176997-125f25cc6f3d?q=80&w=800&auto=format&fit=crop";
-        if (lower.includes('paneer')) return "https://images.unsplash.com/photo-1565557623262-b51c2513a641?q=80&w=800&auto=format&fit=crop";
-        if (lower.includes('vegan') || lower.includes('veg') || lower.includes('salad')) return "https://images.unsplash.com/photo-1512621776951-a57141f2eefd?q=80&w=800&auto=format&fit=crop";
-        if (lower.includes('fish')) return "https://images.unsplash.com/photo-1519708227418-c8fd9a3a1b78?q=80&w=800&auto=format&fit=crop";
-        if (lower.includes('egg')) return "https://images.unsplash.com/photo-1482049016688-2d3e1b311543?q=80&w=800&auto=format&fit=crop";
-        return "https://images.unsplash.com/photo-1546069901-ba9599a7e63c?q=80&w=800&auto=format&fit=crop";
-    };
-
-    const getAddonImageUrl = (name: string, imagePath?: string) => {
-        if (imagePath) {
-            if (imagePath.startsWith('http://') || imagePath.startsWith('https://')) return imagePath;
-            return `${BASE_URL}${imagePath}`;
-        }
-        const lower = name.toLowerCase();
-        if (lower.includes('kefir')) return "https://images.unsplash.com/photo-1563227812-0ea4c22e6cc8?q=80&w=800&auto=format&fit=crop";
-        if (lower.includes('cookie')) return "https://images.unsplash.com/photo-1499636138143-bd649043ea52?q=80&w=800&auto=format&fit=crop";
-        if (lower.includes('drink') || lower.includes('juice')) return "https://images.unsplash.com/photo-1513558161293-cdaf765ed2fd?q=80&w=800&auto=format&fit=crop";
-        return "https://images.unsplash.com/photo-1550989460-0adf9ea622e2?q=80&w=800&auto=format&fit=crop";
-    };
+    // getImageUrl and getAddonImageUrl moved to module-level for performance
 
     return (
         <div className="min-h-screen pt-20 pb-44 md:pb-32 px-4 md:px-8 relative">
@@ -761,7 +765,7 @@ export const OrderFlowPage: React.FC<OrderFlowPageProps> = ({ onBack }) => {
                                             { label: 'DINNER', value: ['DINNER'] },
                                             { label: 'BOTH', value: ['LUNCH', 'DINNER'] }
                                         ].map((opt) => {
-                                            const isSelected = JSON.stringify(selectedMeals) === JSON.stringify(opt.value);
+                                            const isSelected = selectedMeals.length === opt.value.length && opt.value.every(v => selectedMeals.includes(v));
                                             return (
                                                 <button
                                                     key={opt.label}
@@ -915,7 +919,7 @@ export const OrderFlowPage: React.FC<OrderFlowPageProps> = ({ onBack }) => {
                                         <input
                                             type="date"
                                             value={startDate}
-                                            min={getMinDate()}
+                                            min={minDate}
                                             onChange={(e) => setStartDate(e.target.value)}
                                             className="w-full border-3 border-black p-3 rounded-xl font-heading text-lg focus:bg-quirky-yellow/20 outline-none"
                                         />
@@ -1015,10 +1019,14 @@ export const OrderFlowPage: React.FC<OrderFlowPageProps> = ({ onBack }) => {
                                                 <p className="text-[10px] text-gray-400 font-body">Standard Flat Rate (Fixed)</p>
                                             </div>
 
-                                            {/* GST */}
+                                            {/* CGST & SGST (included in price) */}
                                             <div className="flex justify-between items-center mt-2">
-                                                <span className="font-heading text-sm text-gray-500">GST</span>
-                                                <span className="font-heading text-sm text-gray-500">Included</span>
+                                                <span className="font-body text-xs text-gray-400">CGST (2.5%)</span>
+                                                <span className="font-body text-xs text-gray-400 italic">Included</span>
+                                            </div>
+                                            <div className="flex justify-between items-center mt-1">
+                                                <span className="font-body text-xs text-gray-400">SGST (2.5%)</span>
+                                                <span className="font-body text-xs text-gray-400 italic">Included</span>
                                             </div>
 
                                             {/* Total Box */}
@@ -1243,6 +1251,16 @@ export const OrderFlowPage: React.FC<OrderFlowPageProps> = ({ onBack }) => {
                                         </div>
                                     )}
 
+                                    {/* CGST & SGST (included in price) */}
+                                    <div className="flex justify-between items-center mb-1 text-sm font-body text-gray-400">
+                                        <span>CGST (2.5%)</span>
+                                        <span className="italic">Included</span>
+                                    </div>
+                                    <div className="flex justify-between items-center mb-6 text-sm font-body text-gray-400">
+                                        <span>SGST (2.5%)</span>
+                                        <span className="italic">Included</span>
+                                    </div>
+
                                     {/* Total */}
                                     <div className="bg-quirky-cream border-3 border-black p-4 rounded-xl flex justify-between items-center mb-8">
                                         <span className="font-heading text-base md:text-lg">TOTAL TO PAY</span>
@@ -1300,44 +1318,18 @@ export const OrderFlowPage: React.FC<OrderFlowPageProps> = ({ onBack }) => {
                 )
             }
 
-            {/* --- ADDON POPUP MODAL --- */}
-            {
-                activeAddonModal && (
-                    <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm animate-in fade-in">
-                        <div className="bg-white border-4 border-black p-6 rounded-3xl max-w-sm w-full shadow-hard-xl relative transform -rotate-1">
-                            <button onClick={() => setActiveAddonModal(null)} className="absolute top-4 right-4 p-1 hover:bg-gray-100 rounded-full border-2 border-transparent hover:border-black transition-all">
-                                <X size={20} />
-                            </button>
 
-                            <h3 className="font-heading text-2xl mb-2 text-center text-stroke-sm text-quirky-pink">ADD {activeAddonModal.name}</h3>
-                            <p className="text-center text-gray-500 mb-6 font-body text-sm font-bold">{activeAddonModal.desc}</p>
-
-                            <div className="space-y-4">
-                                <button onClick={() => handleModalSelection('once')} className="w-full border-3 border-black p-4 rounded-xl font-heading hover:bg-quirky-yellow hover:shadow-hard transition-all flex justify-between items-center group active:scale-95">
-                                    <span className="text-lg">JUST ONCE</span>
-                                    <span className="text-xs bg-black text-white px-2 py-1 rounded">₹{activeAddonModal.price}</span>
-                                </button>
-
-                                <div className="relative">
-                                    <div className="absolute -top-3 -right-2 bg-quirky-green text-black border border-black text-[10px] px-2 py-0.5 rounded rotate-3 z-10 font-bold">RECOMMENDED</div>
-                                    <button onClick={() => handleModalSelection('daily')} className="w-full border-3 border-black p-4 rounded-xl font-heading hover:bg-quirky-purple hover:text-white hover:shadow-hard transition-all flex justify-between items-center bg-gray-50 group active:scale-95">
-                                        <div className="text-left">
-                                            <span className="block text-lg">EVERY DAY</span>
-                                            <span className="text-[10px] opacity-70 font-bold block">With your {days} day plan</span>
-                                        </div>
-                                        <span className="text-xs bg-black text-white px-2 py-1 rounded">₹{activeAddonModal.price * days}</span>
-                                    </button>
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-                )
-            }
 
             {/* --- BLOCKING AUTHENTICATION OVERLAY --- */}
             {showAuth && (
                 <div className="fixed inset-0 z-[200] bg-white overflow-y-auto w-full h-full">
                     <AuthPage
+                        initialData={{
+                            name: form.name,
+                            email: form.email,
+                            phone: form.phone,
+                            address: form.flatDetails
+                        }}
                         onBack={() => setShowAuth(false)}
                         onLoginSuccess={(user) => {
                             setShowAuth(false);
@@ -1346,7 +1338,8 @@ export const OrderFlowPage: React.FC<OrderFlowPageProps> = ({ onBack }) => {
                                 ...prevForm,
                                 name: prevForm.name || user.name || '',
                                 email: prevForm.email || user.email || '',
-                                phone: prevForm.phone || user.phone || ''
+                                phone: prevForm.phone || user.phone || '',
+                                flatDetails: prevForm.flatDetails || user.address || ''
                             }));
                             setCurrentStep(3);
                         }}

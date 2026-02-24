@@ -63,6 +63,10 @@ DeliveryLog.init(
     {
         sequelize,
         tableName: 'delivery_logs',
+        indexes: [
+            { fields: ['userId', 'deliveryTime'] },
+            { fields: ['status'] }
+        ]
     }
 );
 

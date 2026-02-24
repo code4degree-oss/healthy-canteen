@@ -43,31 +43,25 @@ export const getAdminStats = async (req: Request, res: Response) => {
             attributes: ['protein', 'mealsPerDay', 'mealTypes']
         });
 
-        // Structure: { LUNCH: { CHICKEN: 5, PANEER: 3 }, DINNER: { CHICKEN: 4, PANEER: 2 } }
-        const proteinCounts: Record<string, Record<string, number>> = {
-            LUNCH: {},
-            DINNER: {}
+        // Shared helper for aggregating protein counts by meal type
+        const aggregateProteinCounts = (subs: any[]) => {
+            const counts: Record<string, Record<string, number>> = { LUNCH: {}, DINNER: {} };
+            subs.forEach(sub => {
+                const protein = sub.protein?.toUpperCase() || 'UNKNOWN';
+                let types: string[] = Array.isArray(sub.mealTypes) ? sub.mealTypes : ['LUNCH'];
+                // Legacy fix: mealsPerDay=2 with only LUNCH means both
+                if (sub.mealsPerDay == 2 && types.length === 1 && types[0] === 'LUNCH') {
+                    types = ['LUNCH', 'DINNER'];
+                }
+                if (types.includes('LUNCH')) counts.LUNCH[protein] = (counts.LUNCH[protein] || 0) + 1;
+                if (types.includes('DINNER')) counts.DINNER[protein] = (counts.DINNER[protein] || 0) + 1;
+            });
+            return counts;
         };
 
-        activeSubsToday.forEach(sub => {
-            const protein = sub.protein?.toUpperCase() || 'UNKNOWN';
-            // Ensure mealTypes is an array. Handle legacy data or defaults.
-            let types: string[] = Array.isArray(sub.mealTypes) ? sub.mealTypes : ['LUNCH'];
+        const proteinCounts = aggregateProteinCounts(activeSubsToday);
 
-            // Legacy fix for Today
-            if (sub.mealsPerDay == 2 && types.length === 1 && types[0] === 'LUNCH') {
-                types = ['LUNCH', 'DINNER'];
-            }
-
-            if (types.includes('LUNCH')) {
-                proteinCounts.LUNCH[protein] = (proteinCounts.LUNCH[protein] || 0) + 1;
-            }
-            if (types.includes('DINNER')) {
-                proteinCounts.DINNER[protein] = (proteinCounts.DINNER[protein] || 0) + 1;
-            }
-        });
-
-        // --- NEW: Meals to Prep for Tomorrow ---
+        // --- Meals to Prep for Tomorrow ---
         const tomorrow = new Date(today);
         tomorrow.setDate(tomorrow.getDate() + 1);
 
@@ -80,32 +74,7 @@ export const getAdminStats = async (req: Request, res: Response) => {
             attributes: ['protein', 'mealsPerDay', 'mealTypes']
         });
 
-        const tomorrowPrepCounts: Record<string, Record<string, number>> = {
-            LUNCH: {},
-            DINNER: {}
-        };
-
-        activeSubsTomorrow.forEach(sub => {
-            const protein = sub.protein?.toUpperCase() || 'UNKNOWN';
-            let types: string[] = Array.isArray(sub.mealTypes) ? sub.mealTypes : ['LUNCH'];
-
-            // Legacy fix
-            // console.log(`Sub ${sub.id}: mealsPerDay=${sub.mealsPerDay} (${typeof sub.mealsPerDay}), mealTypes=${JSON.stringify(sub.mealTypes)}`);
-            const originalTypes = [...types];
-            if (sub.mealsPerDay == 2 && types.length === 1 && types[0] === 'LUNCH') {
-                types = ['LUNCH', 'DINNER'];
-                // console.log(`-> Patched to LUNCH+DINNER`);
-            }
-
-            if (types.includes('LUNCH')) {
-                tomorrowPrepCounts.LUNCH[protein] = (tomorrowPrepCounts.LUNCH[protein] || 0) + 1;
-            }
-            if (types.includes('DINNER')) {
-                tomorrowPrepCounts.DINNER[protein] = (tomorrowPrepCounts.DINNER[protein] || 0) + 1;
-            }
-        });
-
-        console.log('Protein Counts:', JSON.stringify(tomorrowPrepCounts, null, 2));
+        const tomorrowPrepCounts = aggregateProteinCounts(activeSubsTomorrow);
 
         // 4. Recent Orders
         const recentOrders = await Order.findAll({

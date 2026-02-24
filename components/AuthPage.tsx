@@ -8,11 +8,18 @@ import { GoogleLogin, useGoogleOneTapLogin } from '@react-oauth/google';
 interface AuthPageProps {
     onLoginSuccess: (user: any) => void;
     onBack: () => void;
+    initialData?: { name?: string; email?: string; phone?: string; address?: string };
 }
 
-export const AuthPage: React.FC<AuthPageProps> = ({ onLoginSuccess, onBack }) => {
+export const AuthPage: React.FC<AuthPageProps> = ({ onLoginSuccess, onBack, initialData }) => {
     const [isLogin, setIsLogin] = useState(true);
-    const [form, setForm] = useState({ email: '', password: '', name: '', phone: '' });
+    const [form, setForm] = useState({
+        email: initialData?.email || '',
+        password: '',
+        name: initialData?.name || '',
+        phone: initialData?.phone || '',
+        address: initialData?.address || ''
+    });
     const [error, setError] = useState<string | null>(null);
     const [loading, setLoading] = useState(false);
     const [showPassword, setShowPassword] = useState(false);

@@ -16,22 +16,24 @@ import sequelize from '../config/database';
 import MenuItem from '../models/MenuItem';
 import Notification from '../models/Notification';
 import User from '../models/User';
+import AddOn from '../models/AddOn';
+
+// --- Discount Helpers (module-level, no need to recreate per request) ---
+const getMealDiscountPercentage = (d: number) => {
+    if (d <= 6) return 0;
+    if (d <= 12) return 0.03;
+    if (d <= 18) return 0.05;
+    return 0.07;
+};
+
+const getKefirDiscountPercentage = (d: number) => {
+    if (d <= 6) return 0;
+    if (d <= 12) return 0.10;
+    if (d <= 18) return 0.20;
+    return 0.275;
+};
 
 export const createOrder = async (req: Request, res: Response) => {
-    // --- Helper Functions ---
-    const getMealDiscountPercentage = (d: number) => {
-        if (d <= 6) return 0;
-        if (d <= 12) return 0.03;
-        if (d <= 18) return 0.05;
-        return 0.07;
-    };
-
-    const getKefirDiscountPercentage = (d: number) => {
-        if (d <= 6) return 0;
-        if (d <= 12) return 0.10;
-        if (d <= 18) return 0.20;
-        return 0.275;
-    };
 
     const t = await sequelize.transaction();
     try {
@@ -146,20 +148,29 @@ export const createOrder = async (req: Request, res: Response) => {
 
         // Need to loop through provided addons to calculate price
         if (addons && typeof addons === 'object') {
-            for (const [addonId, selection] of Object.entries(addons)) {
-                const sel = selection as any;
-                if (sel.quantity > 0) {
-                    const addonDef = await import('../models/AddOn').then(m => m.default.findByPk(addonId));
-                    if (addonDef) {
-                        let price = addonDef.price;
-                        if (addonDef.name.toLowerCase().includes('kefir')) {
-                            price = Math.round(price * (1 - getKefirDiscountPercentage(days)));
-                        }
+            const addonIds = Object.keys(addons);
 
-                        if (sel.frequency === 'daily') {
-                            addOnTotal += price * sel.quantity * days;
-                        } else {
-                            addOnTotal += price * sel.quantity;
+            // Optimization: Fetch all addon definitions in a single query
+            if (addonIds.length > 0) {
+                const addonDefs = await AddOn.findAll({
+                    where: { id: { [Op.in]: addonIds } }
+                });
+
+                for (const [addonId, selection] of Object.entries(addons)) {
+                    const sel = selection as any;
+                    if (sel.quantity > 0) {
+                        const addonDef = addonDefs.find(a => a.id.toString() === addonId);
+                        if (addonDef) {
+                            let price = addonDef.price;
+                            if (addonDef.name.toLowerCase().includes('kefir')) {
+                                price = Math.round(price * (1 - getKefirDiscountPercentage(days)));
+                            }
+
+                            if (sel.frequency === 'daily') {
+                                addOnTotal += price * sel.quantity * days;
+                            } else {
+                                addOnTotal += price * sel.quantity;
+                            }
                         }
                     }
                 }
@@ -228,9 +239,9 @@ export const createOrder = async (req: Request, res: Response) => {
             }
         }
 
-        // Create Notification for Admins
-        const admins = await User.findAll({ where: { role: 'admin' } });
-        const customer = await User.findByPk(userId);
+        // Create Notification for Admins (inside transaction for consistency)
+        const admins = await User.findAll({ where: { role: 'admin' }, transaction: t });
+        const customer = await User.findByPk(userId, { transaction: t });
         const customerName = customer ? customer.name : 'Unknown';
 
         const notificationPromises = admins.map(admin => {
@@ -239,7 +250,7 @@ export const createOrder = async (req: Request, res: Response) => {
                 title: 'New Order! 🥗',
                 message: `New Order: ${order.protein} (${finalMealTypes.join(' & ')}) for ${order.days} ${order.days === 1 ? 'Day' : 'Days'}. Customer: ${customerName}.`,
                 type: 'info'
-            });
+            }, { transaction: t });
         });
         await Promise.all(notificationPromises);
 
@@ -267,8 +278,7 @@ export const getActiveSubscription = async (req: Request, res: Response) => {
     try {
         const userId = (req as any).user.id;
         const DeliveryLog = await import('../models/DeliveryLog').then(m => m.default);
-        const User = await import('../models/User').then(m => m.default); // Ensure User is available
-        const Order = await import('../models/Order').then(m => m.default); // Import Order
+        // User and Order already imported at top of file
 
         const subscriptions = await Subscription.findAll({
             where: { userId, status: { [Op.in]: ['ACTIVE', 'PAUSED'] } }, // Fetch PAUSED too as per recent changes
