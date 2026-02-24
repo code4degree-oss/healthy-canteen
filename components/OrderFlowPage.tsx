@@ -516,8 +516,8 @@ export const OrderFlowPage: React.FC<OrderFlowPageProps> = ({ onBack }) => {
             }
         }
         else if (currentStep === 2) {
-            if (!form.name || !form.phone) {
-                alert("Hey! We need your name and phone at least.");
+            if (!form.name || !form.phone || !form.flatDetails.trim()) {
+                alert("Hey! We need your name, phone, and address (flat/building) to deliver.");
                 return;
             }
             if (!location) {
