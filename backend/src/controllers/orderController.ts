@@ -5,6 +5,7 @@ import Subscription from '../models/Subscription';
 import { AuthRequest } from '../types/express'; // We'll need to define this type or use 'any' for now
 import Settings from '../models/Settings';
 import { getDistanceKm } from '../utils/haversine';
+import { sendOrderConfirmation } from '../services/emailService';
 
 // Simple rate map (should ideally be shared or fetched from DB)
 // Rates are now fully dynamic from Database
@@ -255,6 +256,25 @@ export const createOrder = async (req: Request, res: Response) => {
         await Promise.all(notificationPromises);
 
         await t.commit(); // Commit transaction only after everything succeeds
+
+        // Send order confirmation email (fire-and-forget, outside transaction)
+        if (user && user.email) {
+            sendOrderConfirmation(user.email, user.name || 'Customer', {
+                protein,
+                days,
+                mealsPerDay: calculatedMealsPerDay,
+                mealTypes: finalMealTypes,
+                basePlanTotal: discountedBasePrice,
+                addonTotal: addOnTotal,
+                deliveryFee,
+                totalPrice,
+                startDate,
+                addons,
+                addonDefs: addons && typeof addons === 'object' && Object.keys(addons).length > 0
+                    ? (await AddOn.findAll({ where: { id: { [Op.in]: Object.keys(addons) } } }))
+                    : []
+            }).catch(err => console.error('[Email] Order confirmation failed:', err));
+        }
 
         res.status(201).json({ message: 'Order created successfully', order });
     } catch (error: any) {

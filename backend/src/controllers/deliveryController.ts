@@ -4,6 +4,7 @@ import Subscription from '../models/Subscription';
 import User from '../models/User';
 import Order from '../models/Order';
 import DeliveryLog from '../models/DeliveryLog';
+import { sendDeliveryConfirmation } from '../services/emailService';
 
 export const getDeliveryQueue = async (req: Request, res: Response) => {
     try {
@@ -94,6 +95,21 @@ export const confirmDelivery = async (req: Request, res: Response) => {
                 status: 'DELIVERED',
                 deliveryTime: new Date()
             });
+        }
+
+        // Send delivery email to customer (fire-and-forget)
+        const sub = await Subscription.findByPk(subscriptionId);
+        if (sub) {
+            const customer = await User.findByPk(sub.userId);
+            const rider = await User.findByPk(userId);
+            if (customer && customer.email) {
+                sendDeliveryConfirmation(customer.email, customer.name || 'Customer', {
+                    protein: sub.protein,
+                    mealTypes: Array.isArray(sub.mealTypes) ? sub.mealTypes : ['LUNCH'],
+                    deliveryTime: new Date(),
+                    riderName: rider?.name
+                }).catch(err => console.error('[Email] Delivery email failed:', err));
+            }
         }
 
         res.json({ message: 'Delivery confirmed successfully' });
