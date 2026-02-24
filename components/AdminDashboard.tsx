@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { ProteinType, CustomerProfile, MenuItem, AddOn } from '../types';
 import { admin, settings, notifications, BASE_URL } from '../src/services/api';
 import {
@@ -22,8 +22,6 @@ interface AdminDashboardProps {
 
 export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onBack }) => {
     const [activeView, setActiveView] = useState<'dashboard' | 'customers' | 'menu' | 'settings' | 'notifications' | 'history'>('dashboard');
-
-    // Dynamic Data State
 
     // Dynamic Data State
     const [customers, setCustomers] = useState<any[]>([]);
@@ -59,6 +57,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onBack }) => {
             const newNotifications = res.data;
             const newUnreadCount = newNotifications.filter((n: any) => !n.isRead).length;
 
+            let shouldRefreshData = false;
             setInboxNotifications(prev => {
                 const prevLatestId = prev.length > 0 ? Math.max(...prev.map(n => n.id)) : 0;
                 const newLatestId = newNotifications.length > 0 ? Math.max(...newNotifications.map((n: any) => n.id)) : 0;
@@ -66,13 +65,16 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onBack }) => {
                 if (newLatestId > prevLatestId) {
                     const audio = new Audio('https://assets.mixkit.co/sfx/preview/mixkit-positive-notification-951.mp3');
                     audio.play().catch(e => console.log("Audio play failed", e));
-
-                    // Auto-refresh dashboard data
-                    fetchData();
+                    shouldRefreshData = true;
                 }
                 return newNotifications;
             });
             setUnreadCount(newUnreadCount);
+
+            // Refresh dashboard data outside the state setter to avoid side effects during render
+            if (shouldRefreshData) {
+                fetchData();
+            }
         } catch (e) { console.error("Failed to fetch notifications"); } finally { setIsInboxLoading(false); }
     };
 
@@ -139,14 +141,14 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onBack }) => {
         return <img src={URL.createObjectURL(fileOrUrl)} alt="Preview" className="w-16 h-16 object-cover rounded border" />;
     };
 
-    // FETCH DATA ON MOUNT & SEARCH/PAGE CHANGE
+    // FETCH DATA ON MOUNT & VIEW/PAGE CHANGE
     useEffect(() => {
         if (activeView === 'customers') {
             fetchCustomers();
         } else {
             fetchData();
         }
-    }, [activeView, currentPage, searchTerm]);
+    }, [activeView, currentPage]);
 
     // Simple debounce for search
     useEffect(() => {
@@ -557,7 +559,51 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onBack }) => {
 
     // --- RENDERERS ---
 
+    const activeDeliveriesByMealType = useMemo(() => {
+        const result: Record<string, any[]> = { 'LUNCH': [], 'DINNER': [] };
+        const now = new Date();
+        const todayUTC = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));
+        const todayStr = todayUTC.toISOString().split('T')[0];
 
+        ['LUNCH', 'DINNER'].forEach(mealType => {
+            result[mealType] = customers.flatMap(c => {
+                const subs = c.subscriptions || [];
+                if (subs.length === 0) return [];
+
+                const activeAndStartedSubs = subs.filter((s: any) => {
+                    const start = new Date(s.startDate);
+                    const startUTC = new Date(Date.UTC(start.getUTCFullYear(), start.getUTCMonth(), start.getUTCDate()));
+                    const subMealTypes = s.mealTypes || ['LUNCH'];
+                    return s.status === 'ACTIVE' && startUTC <= todayUTC && subMealTypes.includes(mealType);
+                });
+
+                if (activeAndStartedSubs.length === 0) return [];
+
+                return activeAndStartedSubs.map((activeSub: any) => {
+                    const activeAddons = activeSub.addons ? Object.keys(activeSub.addons).map(k => {
+                        const def = addOns.find(a => a.id == k || a.name === k);
+                        const item = activeSub.addons[k];
+                        if (item.quantity === 0) return null;
+                        return `${def?.name || k} x${item.quantity}`;
+                    }).filter(Boolean).join(', ') : '';
+
+                    const todayLogs = activeSub.deliveryLogs?.filter((l: any) => {
+                        if (!l.deliveryTime) return false;
+                        const logDate = new Date(l.deliveryTime);
+                        return logDate.toISOString().startsWith(todayStr) &&
+                            (l.mealType === mealType || (!l.mealType && mealType === 'LUNCH'))
+                    }) || [];
+
+                    const statusPriority: Record<string, number> = { 'NO_RECEIVE': 5, 'DELIVERED': 4, 'ASSIGNED': 3, 'READY': 2, 'PENDING': 1 };
+                    const log = todayLogs.sort((a: any, b: any) => (statusPriority[b.status] || 0) - (statusPriority[a.status] || 0))[0] || null;
+                    const status = log?.status || 'PENDING';
+
+                    return { c, activeSub, mType: mealType, activeAddons, log, status };
+                });
+            });
+        });
+        return result;
+    }, [customers, addOns]);
 
     const renderKitchenMenu = () => {
         const MEAL_TYPES = ['LUNCH', 'DINNER'] as const;
@@ -631,158 +677,112 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onBack }) => {
                                         </tr>
                                     </thead>
                                     <tbody className="divide-y divide-slate-100">
-                                        {customers.flatMap(c => {
-                                            const subs = c.subscriptions || [];
-                                            if (subs.length === 0) return [];
+                                        {activeDeliveriesByMealType[mealType]?.map(({ c, activeSub, mType, activeAddons, log, status }: any) => {
+                                            const getStatusBadge = (s: string) => {
+                                                switch (s) {
+                                                    case 'NO_RECEIVE': return <span className="px-2 py-1 rounded-full text-xs font-bold bg-red-100 text-red-700 flex items-center gap-1"><XCircle size={12} /> Failed</span>;
+                                                    case 'DELIVERED': return <span className="px-2 py-1 rounded-full text-xs font-bold bg-green-100 text-green-700">Delivered</span>;
+                                                    case 'ASSIGNED': return <span className="px-2 py-1 rounded-full text-xs font-bold bg-blue-100 text-blue-700">Assigned</span>;
+                                                    case 'READY': return <span className="px-2 py-1 rounded-full text-xs font-bold bg-yellow-100 text-yellow-700">Ready</span>;
+                                                    default: return <span className="px-2 py-1 rounded-full text-xs font-bold bg-slate-100 text-slate-500">Pending</span>;
+                                                }
+                                            };
 
-                                            // Filter for ACTIVE subs + date check
-                                            const now = new Date();
-                                            const todayUTC = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));
-
-                                            const activeAndStartedSubs = subs.filter((s: any) => {
-                                                const start = new Date(s.startDate);
-                                                const startUTC = new Date(Date.UTC(start.getUTCFullYear(), start.getUTCMonth(), start.getUTCDate()));
-                                                // Also check if this subscription HAS this mealType
-                                                const subMealTypes = s.mealTypes || ['LUNCH'];
-                                                return s.status === 'ACTIVE' && startUTC <= todayUTC && subMealTypes.includes(mealType);
-                                            });
-
-                                            if (activeAndStartedSubs.length === 0) return [];
-
-                                            return activeAndStartedSubs.map((activeSub: any) => {
-                                                // We know this sub has the current mealType
-                                                const mType = mealType;
-
-                                                const activeAddons = activeSub.addons ? Object.keys(activeSub.addons).map(k => {
-                                                    const def = addOns.find(a => a.id == k || a.name === k);
-                                                    const item = activeSub.addons[k];
-                                                    if (item.quantity === 0) return null;
-                                                    return `${def?.name || k} x${item.quantity}`;
-                                                }).filter(Boolean).join(', ') : '';
-
-                                                const todayStr = todayUTC.toISOString().split('T')[0];
-
-                                                // Filter logs by DATE and MEAL TYPE
-                                                const todayLogs = activeSub.deliveryLogs?.filter((l: any) => {
-                                                    if (!l.deliveryTime) return false;
-                                                    const logDate = new Date(l.deliveryTime);
-                                                    return logDate.toISOString().startsWith(todayStr) &&
-                                                        (l.mealType === mType || (!l.mealType && mType === 'LUNCH'))
-                                                }) || [];
-
-                                                const statusPriority: Record<string, number> = { 'NO_RECEIVE': 5, 'DELIVERED': 4, 'ASSIGNED': 3, 'READY': 2, 'PENDING': 1 };
-                                                const log = todayLogs.sort((a: any, b: any) => (statusPriority[b.status] || 0) - (statusPriority[a.status] || 0))[0] || null;
-                                                const status = log?.status || 'PENDING';
-
-                                                const getStatusBadge = (s: string) => {
-                                                    switch (s) {
-                                                        case 'NO_RECEIVE': return <span className="px-2 py-1 rounded-full text-xs font-bold bg-red-100 text-red-700 flex items-center gap-1"><XCircle size={12} /> Failed</span>;
-                                                        case 'DELIVERED': return <span className="px-2 py-1 rounded-full text-xs font-bold bg-green-100 text-green-700">Delivered</span>;
-                                                        case 'ASSIGNED': return <span className="px-2 py-1 rounded-full text-xs font-bold bg-blue-100 text-blue-700">Assigned</span>;
-                                                        case 'READY': return <span className="px-2 py-1 rounded-full text-xs font-bold bg-yellow-100 text-yellow-700">Ready</span>;
-                                                        default: return <span className="px-2 py-1 rounded-full text-xs font-bold bg-slate-100 text-slate-500">Pending</span>;
-                                                    }
-                                                };
-
-                                                return (
-                                                    <tr key={`${activeSub.id}-${mType}`} className="hover:bg-slate-50">
-                                                        <td className="px-4 py-3 font-medium">
-                                                            {c.name}
-                                                            <div className="text-[10px] text-slate-400">#{activeSub.id}</div>
-                                                        </td>
-                                                        <td className="px-4 py-3 text-slate-500 max-w-xs truncate text-xs" title={activeSub.deliveryAddress || c.address}>
-                                                            {activeSub.deliveryAddress || c.address || 'Loc only'}
-                                                        </td>
-                                                        <td className="px-4 py-3">
-                                                            <span className={`px-2 py-0.5 rounded text-xs text-white font-bold ${activeSub.protein === 'CHICKEN' ? 'bg-orange-400' : 'bg-green-400'}`}>
-                                                                {activeSub.protein}
-                                                            </span>
-                                                        </td>
-                                                        <td className="px-4 py-3 text-slate-600 font-medium text-xs">
-                                                            {activeAddons || '-'}
-                                                        </td>
-                                                        <td className="px-4 py-3">
-                                                            <div className="flex flex-col items-start gap-1">
-                                                                {getStatusBadge(status)}
-                                                                {status === 'DELIVERED' && log && (
-                                                                    <div className="mt-1 text-xs flex flex-col gap-0.5">
-                                                                        <span className="text-slate-600 flex items-center gap-1">
-                                                                            🕒 {new Date(log.deliveryTime).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                                                                        </span>
+                                            return (
+                                                <tr key={`${activeSub.id}-${mType}`} className="hover:bg-slate-50">
+                                                    <td className="px-4 py-3 font-medium">
+                                                        {c.name}
+                                                        <div className="text-[10px] text-slate-400">#{activeSub.id}</div>
+                                                    </td>
+                                                    <td className="px-4 py-3 text-slate-500 max-w-xs truncate text-xs" title={activeSub.deliveryAddress || c.address}>
+                                                        {activeSub.deliveryAddress || c.address || 'Loc only'}
+                                                    </td>
+                                                    <td className="px-4 py-3">
+                                                        <span className={`px-2 py-0.5 rounded text-xs text-white font-bold ${activeSub.protein === 'CHICKEN' ? 'bg-orange-400' : 'bg-green-400'}`}>
+                                                            {activeSub.protein}
+                                                        </span>
+                                                    </td>
+                                                    <td className="px-4 py-3 text-slate-600 font-medium text-xs">
+                                                        {activeAddons || '-'}
+                                                    </td>
+                                                    <td className="px-4 py-3">
+                                                        <div className="flex flex-col items-start gap-1">
+                                                            {getStatusBadge(status)}
+                                                            {status === 'DELIVERED' && log && (
+                                                                <div className="mt-1 text-xs flex flex-col gap-0.5">
+                                                                    <span className="text-slate-600 flex items-center gap-1">
+                                                                        🕒 {new Date(log.deliveryTime).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                                                                    </span>
+                                                                </div>
+                                                            )}
+                                                        </div>
+                                                    </td>
+                                                    <td className="px-4 py-3">
+                                                        {(() => {
+                                                            const order = c.orders?.find((o: any) => o.id === activeSub.orderId);
+                                                            const notes = order?.notes || (activeSub as any).notes;
+                                                            return notes ? (
+                                                                <div className="max-w-[150px] group relative">
+                                                                    <p className="text-xs text-amber-700 bg-amber-50 px-2 py-1 rounded border border-amber-200 truncate cursor-help">
+                                                                        📝 {notes}
+                                                                    </p>
+                                                                    <div className="absolute left-0 bottom-full mb-1 hidden group-hover:block bg-black text-white text-xs p-2 rounded w-48 z-10">
+                                                                        {notes}
                                                                     </div>
-                                                                )}
-                                                            </div>
-                                                        </td>
-                                                        <td className="px-4 py-3">
-                                                            {(() => {
-                                                                const order = c.orders?.find((o: any) => o.id === activeSub.orderId);
-                                                                const notes = order?.notes || (activeSub as any).notes;
-                                                                return notes ? (
-                                                                    <div className="max-w-[150px] group relative">
-                                                                        <p className="text-xs text-amber-700 bg-amber-50 px-2 py-1 rounded border border-amber-200 truncate cursor-help">
-                                                                            📝 {notes}
-                                                                        </p>
-                                                                        <div className="absolute left-0 bottom-full mb-1 hidden group-hover:block bg-black text-white text-xs p-2 rounded w-48 z-10">
-                                                                            {notes}
-                                                                        </div>
-                                                                    </div>
-                                                                ) : <span className="text-xs text-slate-300">—</span>;
-                                                            })()}
-                                                        </td>
-                                                        <td className="px-4 py-3">
-                                                            {(() => {
-                                                                if (status === 'DELIVERED') {
-                                                                    return log?.deliveryAgent ? (
-                                                                        <span className="text-xs font-bold text-slate-700 flex items-center gap-1">
-                                                                            👤 {log.deliveryAgent.name}
-                                                                        </span>
-                                                                    ) : <span className="text-xs text-slate-400">-</span>;
-                                                                }
+                                                                </div>
+                                                            ) : <span className="text-xs text-slate-300">—</span>;
+                                                        })()}
+                                                    </td>
+                                                    <td className="px-4 py-3">
+                                                        {(() => {
+                                                            if (status === 'DELIVERED') {
+                                                                return log?.deliveryAgent ? (
+                                                                    <span className="text-xs font-bold text-slate-700 flex items-center gap-1">
+                                                                        👤 {log.deliveryAgent.name}
+                                                                    </span>
+                                                                ) : <span className="text-xs text-slate-400">-</span>;
+                                                            }
 
-                                                                if (status === 'PENDING') {
-                                                                    return (
-                                                                        <button
-                                                                            onClick={() => handleMarkReady(activeSub.id, mType)}
-                                                                            className="bg-orange-100 text-orange-700 hover:bg-orange-200 px-3 py-1 rounded text-xs font-bold border border-orange-200 transition-colors"
-                                                                        >
-                                                                            Mark Ready
-                                                                        </button>
-                                                                    );
-                                                                }
-
+                                                            if (status === 'PENDING') {
                                                                 return (
-                                                                    <div className="flex flex-col gap-1">
-                                                                        <select
-                                                                            className="text-xs border border-slate-300 rounded p-1 max-w-[120px] bg-white shadow-sm"
-                                                                            value={log?.userId || ''}
-                                                                            onChange={(e) => handleAssignDelivery(activeSub.id, e.target.value, mType)}
-                                                                        >
-                                                                            <option value="">{status === 'ASSIGNED' ? 'Change Driver' : 'Assign Driver'}</option>
-                                                                            {deliveryPartners.map(dp => (
-                                                                                <option key={dp.id} value={dp.id}>{dp.name}</option>
-                                                                            ))}
-                                                                        </select>
-                                                                        {status === 'ASSIGNED' && log?.deliveryAgent && (
-                                                                            <span className="text-[10px] text-blue-600 font-medium">Assigned: {log.deliveryAgent.name}</span>
-                                                                        )}
-                                                                    </div>
+                                                                    <button
+                                                                        onClick={() => handleMarkReady(activeSub.id, mType)}
+                                                                        className="bg-orange-100 text-orange-700 hover:bg-orange-200 px-3 py-1 rounded text-xs font-bold border border-orange-200 transition-colors"
+                                                                    >
+                                                                        Mark Ready
+                                                                    </button>
                                                                 );
-                                                            })()}
-                                                        </td>
-                                                    </tr>
-                                                );
-                                            });
-                                        })}
-                                        {customers.every(c => !c.subscriptions?.some((s: any) => {
-                                            const subMealTypes = s.mealTypes || ['LUNCH'];
-                                            return s.status === 'ACTIVE' && subMealTypes.includes(mealType);
-                                        })) && (
-                                                <tr>
-                                                    <td colSpan={7} className="p-8 text-center text-slate-400">
-                                                        <p className="text-sm">No {mealType.toLowerCase()} deliveries scheduled for today.</p>
+                                                            }
+
+                                                            return (
+                                                                <div className="flex flex-col gap-1">
+                                                                    <select
+                                                                        className="text-xs border border-slate-300 rounded p-1 max-w-[120px] bg-white shadow-sm"
+                                                                        value={log?.userId || ''}
+                                                                        onChange={(e) => handleAssignDelivery(activeSub.id, e.target.value, mType)}
+                                                                    >
+                                                                        <option value="">{status === 'ASSIGNED' ? 'Change Driver' : 'Assign Driver'}</option>
+                                                                        {deliveryPartners.map(dp => (
+                                                                            <option key={dp.id} value={dp.id}>{dp.name}</option>
+                                                                        ))}
+                                                                    </select>
+                                                                    {status === 'ASSIGNED' && log?.deliveryAgent && (
+                                                                        <span className="text-[10px] text-blue-600 font-medium">Assigned: {log.deliveryAgent.name}</span>
+                                                                    )}
+                                                                </div>
+                                                            );
+                                                        })()}
                                                     </td>
                                                 </tr>
-                                            )}
+                                            );
+                                        })}
+                                        {(!activeDeliveriesByMealType[mealType] || activeDeliveriesByMealType[mealType].length === 0) && (
+                                            <tr>
+                                                <td colSpan={7} className="p-8 text-center text-slate-400">
+                                                    <p className="text-sm">No {mealType.toLowerCase()} deliveries scheduled for today.</p>
+                                                </td>
+                                            </tr>
+                                        )}
                                     </tbody>
                                 </table>
                             </div>

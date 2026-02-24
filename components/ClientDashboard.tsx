@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { ProteinType, AddOn, UserSubscription, OrderHistoryItem, Notification } from '../types';
 import { QuirkyButton } from './QuirkyButton';
 import { ArrowLeft, Pause, Play, Plus, Zap, Calendar, ShoppingBag, Receipt, Bell, Truck, Info, CheckCircle, X } from 'lucide-react';
@@ -20,6 +20,9 @@ const getAddonImageUrl = (name: string, imagePath?: string) => {
     if (lower.includes('cookie')) return "https://images.unsplash.com/photo-1499636138143-bd649043ea52?q=80&w=800&auto=format&fit=crop";
     return "https://images.unsplash.com/photo-1550989460-0adf9ea622e2?q=80&w=800&auto=format&fit=crop";
 };
+
+// Moved outside component — this never changes
+const doodlePattern = `url("data:image/svg+xml,%3Csvg width='100' height='100' viewBox='0 0 100 100' xmlns='http://www.w3.org/2000/svg'%3E%3Cstyle%3E.d%7Bfill:none;stroke:%23000;stroke-opacity:0.05;stroke-width:2;stroke-linecap:round;stroke-linejoin:round%7D%3C/style%3E%3Cpath class='d' d='M20,20 Q30,5 40,20 T60,20' /%3E%3Ccircle class='d' cx='80' cy='80' r='8' /%3E%3Cpath class='d' d='M10,80 Q20,70 30,80 T50,80' /%3E%3Cpath class='d' d='M70,20 L80,30 M80,20 L70,30' /%3E%3Cpath class='d' d='M40,50 A10,10 0 0,1 60,50' /%3E%3C/svg%3E")`;
 
 export const ClientDashboard: React.FC<ClientDashboardProps> = ({ onBack }) => {
     const [subscriptionsList, setSubscriptionsList] = useState<UserSubscription[]>([]);
@@ -83,7 +86,9 @@ export const ClientDashboard: React.FC<ClientDashboardProps> = ({ onBack }) => {
     }, []);
 
     // Use the 0.05 opacity doodle to match index.html
-    const doodlePattern = `url("data:image/svg+xml,%3Csvg width='100' height='100' viewBox='0 0 100 100' xmlns='http://www.w3.org/2000/svg'%3E%3Cstyle%3E.d%7Bfill:none;stroke:%23000;stroke-opacity:0.05;stroke-width:2;stroke-linecap:round;stroke-linejoin:round%7D%3C/style%3E%3Cpath class='d' d='M20,20 Q30,5 40,20 T60,20' /%3E%3Ccircle class='d' cx='80' cy='80' r='8' /%3E%3Cpath class='d' d='M10,80 Q20,70 30,80 T50,80' /%3E%3Cpath class='d' d='M70,20 L80,30 M80,20 L70,30' /%3E%3Cpath class='d' d='M40,50 A10,10 0 0,1 60,50' /%3E%3C/svg%3E")`;
+    // doodlePattern moved to module-level for performance
+
+    const unreadCount = useMemo(() => notificationList.filter(n => !n.isRead).length, [notificationList]);
 
 
     // --- Handlers ---
@@ -237,9 +242,9 @@ export const ClientDashboard: React.FC<ClientDashboardProps> = ({ onBack }) => {
                     className="bg-white border-3 border-black p-2 md:p-3 rounded-full shadow-hard hover:scale-110 transition-transform relative"
                 >
                     <Bell size={24} />
-                    {notificationList.filter(n => !n.isRead).length > 0 && (
+                    {unreadCount > 0 && (
                         <span className="absolute -top-1 -right-1 bg-red-500 text-white text-[10px] font-bold w-5 h-5 flex items-center justify-center rounded-full border-2 border-black animate-bounce">
-                            {notificationList.filter(n => !n.isRead).length}
+                            {unreadCount}
                         </span>
                     )}
                 </button>

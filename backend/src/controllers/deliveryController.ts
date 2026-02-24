@@ -4,6 +4,7 @@ import Subscription from '../models/Subscription';
 import User from '../models/User';
 import Order from '../models/Order';
 import DeliveryLog from '../models/DeliveryLog';
+import { sendDeliveryConfirmation } from '../services/emailService';
 
 export const getDeliveryQueue = async (req: Request, res: Response) => {
     try {
@@ -65,9 +66,9 @@ export const confirmDelivery = async (req: Request, res: Response) => {
         }
 
         // Find existing log for today (created by markReady/assignDelivery)
-        const today = new Date();
-        const startOfDay = new Date(new Date().setHours(0, 0, 0, 0));
-        const endOfDay = new Date(new Date().setHours(23, 59, 59, 999));
+        const now = new Date();
+        const startOfDay = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 0, 0, 0, 0);
+        const endOfDay = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 23, 59, 59, 999);
 
         let log = await DeliveryLog.findOne({
             where: {
@@ -94,6 +95,21 @@ export const confirmDelivery = async (req: Request, res: Response) => {
                 status: 'DELIVERED',
                 deliveryTime: new Date()
             });
+        }
+
+        // Send delivery email to customer (fire-and-forget)
+        const sub = await Subscription.findByPk(subscriptionId);
+        if (sub) {
+            const customer = await User.findByPk(sub.userId);
+            const rider = await User.findByPk(userId);
+            if (customer && customer.email) {
+                sendDeliveryConfirmation(customer.email, customer.name || 'Customer', {
+                    protein: sub.protein,
+                    mealTypes: Array.isArray(sub.mealTypes) ? sub.mealTypes : ['LUNCH'],
+                    deliveryTime: new Date(),
+                    riderName: rider?.name
+                }).catch(err => console.error('[Email] Delivery email failed:', err));
+            }
         }
 
         res.json({ message: 'Delivery confirmed successfully' });

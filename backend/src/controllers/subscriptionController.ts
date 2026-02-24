@@ -1,8 +1,10 @@
 import { Request, Response } from 'express';
 import Subscription from '../models/Subscription';
 import SubscriptionPause from '../models/SubscriptionPause';
+import User from '../models/User';
 import { Op } from 'sequelize';
 import sequelize from '../config/database';
+import { sendSubscriptionPaused, sendSubscriptionResumed, sendSubscriptionCancelled } from '../services/emailService';
 
 /**
  * Toggle Pause Subscription
@@ -36,6 +38,16 @@ export const pauseSubscription = async (req: Request, res: Response) => {
 
             await subscription.save({ transaction: t });
             await t.commit();
+
+            // Send pause email (fire-and-forget)
+            const pauseUser = await User.findByPk(userId);
+            if (pauseUser && pauseUser.email) {
+                sendSubscriptionPaused(pauseUser.email, pauseUser.name || 'Customer', {
+                    protein: subscription.protein,
+                    pausesRemaining: subscription.pausesRemaining
+                }).catch(err => console.error('[Email] Pause email failed:', err));
+            }
+
             return res.status(200).json({ message: 'Subscription paused.', subscription });
 
         } else if (subscription.status === 'PAUSED') {
@@ -66,6 +78,17 @@ export const pauseSubscription = async (req: Request, res: Response) => {
             }, { transaction: t });
 
             await t.commit();
+
+            // Send resume email (fire-and-forget)
+            const resumeUser = await User.findByPk(userId);
+            if (resumeUser && resumeUser.email) {
+                sendSubscriptionResumed(resumeUser.email, resumeUser.name || 'Customer', {
+                    protein: subscription.protein,
+                    driftDays,
+                    newEndDate
+                }).catch(err => console.error('[Email] Resume email failed:', err));
+            }
+
             return res.status(200).json({ message: `Subscription resumed. Extended by ${driftDays} days.`, subscription });
         } else {
             await t.rollback();
@@ -111,6 +134,16 @@ export const cancelSubscription = async (req: Request, res: Response) => {
         await subscription.save({ transaction: t });
 
         await t.commit();
+
+        // Send cancellation email (fire-and-forget)
+        const cancelUser = await User.findByPk(userId);
+        if (cancelUser && cancelUser.email) {
+            sendSubscriptionCancelled(cancelUser.email, cancelUser.name || 'Customer', {
+                protein: subscription.protein,
+                reason: subscription.cancellationReason || 'No reason provided'
+            }).catch(err => console.error('[Email] Cancel email failed:', err));
+        }
+
         res.status(200).json({ message: 'Subscription cancelled successfully.', subscription });
     } catch (error) {
         await t.rollback();

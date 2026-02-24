@@ -1,0 +1,6 @@
+User-agent: *
+Disallow: /admin
+Disallow: /delivery
+Disallow: /client
+
+Sitemap: https://thehealthycanteen.in/sitemap.xml
