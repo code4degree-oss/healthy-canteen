@@ -97,8 +97,30 @@ export const confirmDelivery = async (req: Request, res: Response) => {
             });
         }
 
-        // Send delivery email to customer (fire-and-forget)
+        // --- Decrement daysRemaining once all meals for today are delivered ---
         const sub = await Subscription.findByPk(subscriptionId);
+        if (sub && sub.status === 'ACTIVE') {
+            const todayDeliveredCount = await DeliveryLog.count({
+                where: {
+                    subscriptionId,
+                    status: 'DELIVERED',
+                    deliveryTime: { [Op.between]: [startOfDay, endOfDay] }
+                }
+            });
+
+            // Only decrement when ALL meals for the day have been delivered
+            // e.g. for a 2-meal plan (LUNCH + DINNER), decrement after the 2nd delivery
+            if (todayDeliveredCount >= sub.mealsPerDay) {
+                sub.daysRemaining = Math.max(0, sub.daysRemaining - 1);
+                if (sub.daysRemaining === 0) {
+                    sub.status = 'EXPIRED';
+                }
+                await sub.save();
+                console.log(`[Subscription ${sub.id}] daysRemaining decremented to ${sub.daysRemaining}${sub.daysRemaining === 0 ? ' — auto-expired' : ''}`);
+            }
+        }
+
+        // Send delivery email to customer (fire-and-forget)
         if (sub) {
             const customer = await User.findByPk(sub.userId);
             const rider = await User.findByPk(userId);

@@ -225,9 +225,18 @@ export const OrderFlowPage: React.FC<OrderFlowPageProps> = ({ onBack }) => {
         return total;
     }, [addons, availableAddons, days]);
 
-    // Delivery Fee: <= 5 days: 50 * days, > 5 days: 300 Fixed
-    const deliveryFee = days <= 5 ? 50 * days : 300;
-    const grandTotal = basePlanTotal + addonTotal + deliveryFee;
+    // --- Delivery Fee (fetched from admin settings) ---
+    const [deliveryFeeSettings, setDeliveryFeeSettings] = useState({ perDay: 50, flat: 300, threshold: 5 });
+
+    const deliveryFee = useMemo(() => {
+        return days <= deliveryFeeSettings.threshold
+            ? deliveryFeeSettings.perDay * days
+            : deliveryFeeSettings.flat;
+    }, [days, deliveryFeeSettings]);
+
+    const grandTotal = useMemo(() => {
+        return basePlanTotal + addonTotal + deliveryFee;
+    }, [basePlanTotal, addonTotal, deliveryFee]);
 
     // --- Handlers (wrapped in useCallback to prevent unnecessary re-renders) ---
     const updateAddon = useCallback((id: string, delta: number, frequency: 'once' | 'daily' = 'once') => {
@@ -262,6 +271,14 @@ export const OrderFlowPage: React.FC<OrderFlowPageProps> = ({ onBack }) => {
         }).catch(() => {
             setServiceArea({ outletLat: 18.654949627383616, outletLng: 73.84475261136429, serviceRadiusKm: 5 });
         });
+
+        settings.getDeliveryFee().then(res => {
+            setDeliveryFeeSettings({
+                perDay: res.data.deliveryFeePerDay,
+                flat: res.data.deliveryFeeFlat,
+                threshold: res.data.deliveryFeeDayThreshold
+            });
+        }).catch(() => { /* fallback already set in state init */ });
     }, []);
 
     // Check distance whenever location or serviceArea changes

@@ -129,6 +129,9 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onBack }) => {
     const [isLocationLocked, setIsLocationLocked] = useState(true);
     const [showAllOrders, setShowAllOrders] = useState(false);
 
+    // --- Delivery Fee State ---
+    const [deliveryFeeConfig, setDeliveryFeeConfig] = useState({ deliveryFeePerDay: 50, deliveryFeeFlat: 300, deliveryFeeDayThreshold: 5 });
+
 
     const [deliveryPartners, setDeliveryPartners] = useState<any[]>([]);
 
@@ -161,23 +164,26 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onBack }) => {
     const fetchData = async () => {
         setLoading(true);
         try {
-            const [menuRes, addonsRes, partnersRes, settingsRes, statsRes] = await Promise.all([
+            const [menuRes, addonsRes, partnersRes, settingsRes, statsRes, feeRes] = await Promise.all([
                 admin.getMenu(), // Returns plans with items included
                 admin.getAddOns(),
                 admin.getDeliveryPartners(),
                 settings.getServiceArea(),
-                admin.getStats()
+                admin.getStats(),
+                settings.getDeliveryFee()
             ]);
             // usersRes removed from initial load to avoid huge payload
 
-            setPlans(menuRes.data); // Set plans (which contain items)
-            // Flatten items for table view if needed, or just use plans structure
-            const allItems = menuRes.data.flatMap((p: any) => p.items || []);
-            setMenuItems(allItems);
-
-            setAddOns(addonsRes.data);
-            setDeliveryPartners(partnersRes.data);
+            if (menuRes?.data) {
+                const plans: any[] = menuRes.data;
+                setPlans(plans);
+                const items = plans.flatMap(p => p.items || []);
+                setMenuItems(items);
+            }
+            if (addonsRes?.data) setAddOns(addonsRes.data);
+            if (partnersRes?.data) setDeliveryPartners(partnersRes.data);
             if (settingsRes?.data) setServiceArea(settingsRes.data);
+            if (feeRes?.data) setDeliveryFeeConfig(feeRes.data);
             if (statsRes?.data) setDashboardStats(statsRes.data);
 
             // Ensure customer data is loaded for the dashboard view
@@ -385,9 +391,18 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onBack }) => {
     const handleSaveSettings = async () => {
         try {
             await settings.updateServiceArea(serviceArea);
-            alert('Service Area Updated!');
-        } catch (e) {
+            alert('Settings saved!');
+        } catch {
             alert('Failed to update settings');
+        }
+    };
+
+    const handleSaveDeliveryFee = async () => {
+        try {
+            await settings.updateDeliveryFee(deliveryFeeConfig);
+            alert('Delivery fee saved!');
+        } catch {
+            alert('Failed to update delivery fee');
         }
     };
 
@@ -1166,6 +1181,58 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onBack }) => {
                                         </div>
                                     )}
 
+                                    {/* REFUND BREAKDOWN (for cancelled subscriptions) */}
+                                    {sub.status === 'CANCELLED' && sub.refundBreakdown && (
+                                        <div className="mt-4 pt-4 border-t border-slate-200">
+                                            <label className="text-xs font-bold text-slate-500 uppercase block mb-2">💰 REFUND BREAKDOWN</label>
+                                            <div className="bg-green-50 border border-green-200 rounded-lg p-4">
+                                                <div className="space-y-2 text-sm">
+                                                    <div className="flex justify-between"><span className="text-slate-600">Total Paid</span><span className="font-bold">₹{sub.refundBreakdown.totalPaid}</span></div>
+                                                    <div className="flex justify-between"><span className="text-slate-600">Days Consumed ({sub.refundBreakdown.daysConsumed} of {sub.refundBreakdown.totalDays})</span><span className="text-red-600 font-bold">- ₹{sub.refundBreakdown.consumedAmount}</span></div>
+                                                    <div className="flex justify-between"><span className="text-slate-600">Admin Fee ({sub.refundBreakdown.adminFeePercent}%)</span><span className="text-red-600 font-bold">- ₹{sub.refundBreakdown.adminFee}</span></div>
+                                                    <div className="border-t border-green-300 pt-2 flex justify-between"><span className="font-bold text-green-700">Net Refund</span><span className="font-bold text-green-700 text-lg">₹{sub.refundBreakdown.netRefund}</span></div>
+                                                </div>
+                                                <p className="text-xs text-amber-700 mt-3 bg-amber-50 p-2 rounded text-center">⏰ {sub.refundBreakdown.note}</p>
+                                                <div className="mt-4 pt-4 border-t border-green-200" onClick={(e) => e.stopPropagation()}>
+                                                    <label className="flex items-center gap-2 cursor-pointer bg-white p-2 rounded border border-green-200 hover:bg-green-100 transition-colors">
+                                                        <input
+                                                            type="checkbox"
+                                                            className="w-4 h-4 text-green-600 rounded border-green-300 focus:ring-green-500"
+                                                            checked={sub.refundInitiated || false}
+                                                            onChange={async (e) => {
+                                                                const isChecked = e.target.checked;
+                                                                try {
+                                                                    await admin.updateSubscription(sub.id, { refundInitiated: isChecked });
+
+                                                                    // Optimistically update UI
+                                                                    const updatedSub = { ...sub, refundInitiated: isChecked };
+                                                                    const updateSubsList = (subsList: any[]) =>
+                                                                        subsList.map(s => s.id === sub.id ? updatedSub : s);
+
+                                                                    setCustomers(prev => prev.map(c =>
+                                                                        c.id === selectedCustomer.id
+                                                                            ? { ...c, subscriptions: updateSubsList(c.subscriptions) }
+                                                                            : c
+                                                                    ));
+
+                                                                    setSelectedCustomer(prev => prev ? {
+                                                                        ...prev,
+                                                                        subscriptions: updateSubsList(prev.subscriptions)
+                                                                    } : prev);
+
+                                                                } catch (error) {
+                                                                    alert('Failed to update refund status');
+                                                                    console.error(error);
+                                                                }
+                                                            }}
+                                                        />
+                                                        <span className="text-sm font-bold text-slate-700 select-none">Mark Refund as Processed/Initiated</span>
+                                                    </label>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    )}
+
                                     {/* ACTIONS */}
                                     <div className="mt-6 flex gap-3">
                                         {sub.status === 'ACTIVE' && (
@@ -1419,6 +1486,55 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onBack }) => {
                                         className="w-full bg-blue-600 text-white py-3 rounded-lg font-bold hover:bg-blue-700 transition-colors"
                                     >
                                         Save Service Area
+                                    </button>
+                                </div>
+                            </div>
+
+                            {/* Delivery Fee Settings */}
+                            <div className="max-w-2xl mx-auto bg-white p-8 rounded-xl shadow-sm border border-slate-200">
+                                <h2 className="text-2xl font-bold mb-6 flex items-center gap-2">🚚 Delivery Fee Settings</h2>
+
+                                <div className="space-y-6">
+                                    <div className="bg-blue-50 p-4 rounded-lg border border-blue-100 text-sm text-blue-800">
+                                        <p className="font-bold mb-1">How this works:</p>
+                                        <p>For plans ≤ threshold days: fee = per-day rate × days. For longer plans: flat fee applies.</p>
+                                    </div>
+
+                                    <div className="grid grid-cols-3 gap-4">
+                                        <div>
+                                            <label className="block text-sm font-bold text-slate-700 mb-1">Fee Per Day (₹)</label>
+                                            <input
+                                                type="number"
+                                                value={deliveryFeeConfig.deliveryFeePerDay}
+                                                onChange={e => setDeliveryFeeConfig({ ...deliveryFeeConfig, deliveryFeePerDay: parseFloat(e.target.value) || 0 })}
+                                                className="w-full p-2 border rounded"
+                                            />
+                                        </div>
+                                        <div>
+                                            <label className="block text-sm font-bold text-slate-700 mb-1">Flat Fee (₹)</label>
+                                            <input
+                                                type="number"
+                                                value={deliveryFeeConfig.deliveryFeeFlat}
+                                                onChange={e => setDeliveryFeeConfig({ ...deliveryFeeConfig, deliveryFeeFlat: parseFloat(e.target.value) || 0 })}
+                                                className="w-full p-2 border rounded"
+                                            />
+                                        </div>
+                                        <div>
+                                            <label className="block text-sm font-bold text-slate-700 mb-1">Day Threshold</label>
+                                            <input
+                                                type="number"
+                                                value={deliveryFeeConfig.deliveryFeeDayThreshold}
+                                                onChange={e => setDeliveryFeeConfig({ ...deliveryFeeConfig, deliveryFeeDayThreshold: parseInt(e.target.value) || 0 })}
+                                                className="w-full p-2 border rounded"
+                                            />
+                                        </div>
+                                    </div>
+
+                                    <button
+                                        onClick={handleSaveDeliveryFee}
+                                        className="w-full bg-blue-600 text-white py-3 rounded-lg font-bold hover:bg-blue-700 transition-colors"
+                                    >
+                                        Save Delivery Fee
                                     </button>
                                 </div>
                             </div>

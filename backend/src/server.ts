@@ -12,6 +12,7 @@ import deliveryRoutes from './routes/deliveryRoutes';
 import menuRoutes from './routes/menuRoutes';
 import settingsRoutes from './routes/settingsRoutes';
 import path from 'path';
+import { startScheduledJobs } from './jobs/scheduler';
 
 dotenv.config();
 
@@ -102,6 +103,7 @@ const startServer = async () => {
 
         app.listen(port, () => {
             console.log(`Server is running on port ${port} (${isDev ? 'development' : 'production'})`);
+            startScheduledJobs();
         });
     } catch (error) {
         console.error('Unable to connect to the database:', error);

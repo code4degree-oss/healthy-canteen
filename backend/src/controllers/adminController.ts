@@ -134,7 +134,7 @@ export const getAllUsers = async (req: Request, res: Response) => {
                 {
                     model: Subscription,
                     as: 'subscriptions',
-                    attributes: ['id', 'status', 'protein', 'mealsPerDay', 'daysRemaining', 'deliveryAddress', 'addons', 'startDate', 'endDate', 'mealTypes', 'createdAt'],
+                    attributes: ['id', 'status', 'protein', 'mealsPerDay', 'daysRemaining', 'deliveryAddress', 'addons', 'startDate', 'endDate', 'mealTypes', 'createdAt', 'refundAmount', 'refundBreakdown', 'cancellationReason', 'refundInitiated'],
                     include: [
                         {
                             model: Order,
@@ -427,13 +427,60 @@ export const updateSubscription = async (req: Request, res: Response) => {
         const sub = await Subscription.findByPk(id);
         if (!sub) return res.status(404).json({ message: 'Subscription not found' });
 
+        // If admin is cancelling, calculate refund breakdown
+        if (status === 'CANCELLED' && sub.status !== 'CANCELLED') {
+            const order = await Order.findByPk(sub.orderId);
+            const totalPaid = order ? order.totalPrice : 0;
+
+            const startDate = new Date(sub.startDate);
+            const subEndDate = new Date(sub.endDate);
+            const totalDays = Math.max(1, Math.ceil((subEndDate.getTime() - startDate.getTime()) / (1000 * 3600 * 24)));
+            const daysConsumed = totalDays - sub.daysRemaining;
+            const perDayRate = totalPaid / totalDays;
+            const consumedAmount = Math.round(perDayRate * daysConsumed);
+            const grossRefund = totalPaid - consumedAmount;
+            const adminFee = Math.round(grossRefund * 0.10);
+            const netRefund = grossRefund - adminFee;
+
+            const refundBreakdown = {
+                totalPaid,
+                totalDays,
+                daysConsumed,
+                daysRemaining: sub.daysRemaining,
+                perDayRate: Math.round(perDayRate),
+                consumedAmount,
+                grossRefund,
+                adminFeePercent: 10,
+                adminFee,
+                netRefund: Math.max(0, netRefund),
+                note: 'Refund will be initiated within 24-48 hours.'
+            };
+
+            sub.refundAmount = Math.max(0, netRefund);
+            sub.refundBreakdown = refundBreakdown;
+            sub.cancellationReason = req.body.reason || 'Cancelled by admin';
+
+            // Send cancellation email with refund breakdown
+            const user = await User.findByPk(sub.userId);
+            if (user && user.email) {
+                const { sendSubscriptionCancelled } = await import('../services/emailService');
+                sendSubscriptionCancelled(user.email, user.name || 'Customer', {
+                    protein: sub.protein,
+                    reason: sub.cancellationReason || 'Cancelled by admin',
+                    refundBreakdown
+                }).catch(err => console.error('[Email] Cancel email failed:', err));
+            }
+        }
+
         if (status) sub.status = status;
         if (endDate) sub.endDate = endDate;
         if (pausesRemaining !== undefined) sub.pausesRemaining = pausesRemaining;
+        if (req.body.refundInitiated !== undefined) sub.refundInitiated = req.body.refundInitiated;
 
         await sub.save();
         res.json({ message: 'Subscription updated', subscription: sub });
     } catch (error) {
+        console.error('Error updating subscription:', error);
         res.status(500).json({ message: 'Error updating subscription', error });
     }
 };

@@ -372,31 +372,60 @@ export const ClientDashboard: React.FC<ClientDashboardProps> = ({ onBack }) => {
                                                     <div className="p-2 bg-black/5 rounded-lg border border-black/10">
                                                         <Truck size={24} className="text-black" />
                                                     </div>
-                                                    <span className="font-heading text-xs bg-black text-white px-2 py-1 rounded">
-                                                        {new Date().toLocaleDateString()}
-                                                    </span>
+                                                    {(() => {
+                                                        const startDate = new Date(sub.startDate);
+                                                        const today = new Date();
+                                                        today.setHours(0, 0, 0, 0);
+                                                        startDate.setHours(0, 0, 0, 0);
+                                                        const hasStarted = startDate <= today;
+                                                        return (
+                                                            <span className="font-heading text-xs bg-black text-white px-2 py-1 rounded">
+                                                                {hasStarted ? new Date().toLocaleDateString() : new Date(sub.startDate).toLocaleDateString()}
+                                                            </span>
+                                                        );
+                                                    })()}
                                                 </div>
 
-                                                <h3 className="font-heading text-xl mb-1">TODAY'S DROP 📦</h3>
-
                                                 {(() => {
-                                                    const todayLog = getTodayDeliveryStatus(sub);
-                                                    if (todayLog) {
-                                                        if (todayLog.status === 'DELIVERED') return <p className="font-bold text-green-700">DELIVERED ✅</p>;
-                                                        if (todayLog.status === 'OUT_FOR_DELIVERY' || todayLog.status === 'ASSIGNED') return (
-                                                            <div>
-                                                                <p className="font-bold text-black text-lg animate-pulse">FOOD IS ON THE WAY!</p>
-                                                                {todayLog.deliveryAgent && (
-                                                                    <p className="text-sm mt-1 font-medium">Rider: {todayLog.deliveryAgent.name}</p>
-                                                                )}
-                                                            </div>
+                                                    const startDate = new Date(sub.startDate);
+                                                    const today = new Date();
+                                                    today.setHours(0, 0, 0, 0);
+                                                    startDate.setHours(0, 0, 0, 0);
+                                                    const hasStarted = startDate <= today;
+
+                                                    if (!hasStarted) {
+                                                        return (
+                                                            <>
+                                                                <h3 className="font-heading text-xl mb-1">FIRST DROP 📦</h3>
+                                                                <p className="font-bold text-blue-600">STARTS ON {new Date(sub.startDate).toLocaleDateString()}</p>
+                                                            </>
                                                         );
-                                                        return <p className="font-bold text-slate-500">PREPARING... 🍳</p>;
-                                                    } else if (sub.status === 'ACTIVE') {
-                                                        return <p className="font-bold text-slate-500">SCHEDULED</p>;
-                                                    } else {
-                                                        return <p className="font-bold text-slate-400">NO DELIVERY (PAUSED)</p>;
                                                     }
+
+                                                    return (
+                                                        <>
+                                                            <h3 className="font-heading text-xl mb-1">TODAY'S DROP 📦</h3>
+                                                            {(() => {
+                                                                const todayLog = getTodayDeliveryStatus(sub);
+                                                                if (todayLog) {
+                                                                    if (todayLog.status === 'DELIVERED') return <p className="font-bold text-green-700">DELIVERED ✅</p>;
+                                                                    if (todayLog.status === 'OUT_FOR_DELIVERY' || todayLog.status === 'ASSIGNED') return (
+                                                                        <div>
+                                                                            <p className="font-bold text-black text-lg animate-pulse">FOOD IS ON THE WAY!</p>
+                                                                            {todayLog.deliveryAgent && (
+                                                                                <p className="text-sm mt-1 font-medium">Rider: {todayLog.deliveryAgent.name}</p>
+                                                                            )}
+                                                                        </div>
+                                                                    );
+                                                                    return <p className="font-bold text-slate-500">PREPARING... 🍳</p>;
+                                                                } else if (sub.status === 'ACTIVE') {
+                                                                    return <p className="font-bold text-slate-500">SCHEDULED</p>;
+                                                                } else {
+                                                                    return <p className="font-bold text-slate-400">NO DELIVERY (PAUSED)</p>;
+                                                                }
+                                                            })()}
+                                                        </>
+                                                    );
                                                 })()}
                                             </div>
 

@@ -102,6 +102,9 @@ export const settings = {
     getServiceArea: () => api.get('/settings/service-area'),
     updateServiceArea: (data: { outletLat?: number; outletLng?: number; serviceRadiusKm?: number }) =>
         api.put('/settings/service-area', data),
+    getDeliveryFee: () => api.get('/settings/delivery-fee'),
+    updateDeliveryFee: (data: { deliveryFeePerDay?: number; deliveryFeeFlat?: number; deliveryFeeDayThreshold?: number }) =>
+        api.put('/settings/delivery-fee', data),
 };
 
 export const notifications = {
