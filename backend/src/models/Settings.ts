@@ -36,6 +36,9 @@ export const seedDefaults = async () => {
         outletLat: '18.654949627383616',
         outletLng: '73.84475261136429',
         serviceRadiusKm: '5',
+        deliveryFeePerDay: '50',
+        deliveryFeeFlat: '300',
+        deliveryFeeDayThreshold: '5',
     };
 
     for (const [key, value] of Object.entries(defaults)) {

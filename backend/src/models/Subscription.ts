@@ -19,6 +19,9 @@ class Subscription extends Model {
     public cancellationReason!: string | null;
     public lastPausedAt!: Date | null;
     public mealTypes!: string[];
+    public refundAmount!: number | null;
+    public refundBreakdown!: any | null;
+    public refundInitiated!: boolean;
     public readonly createdAt!: Date;
     public readonly updatedAt!: Date;
 }
@@ -95,6 +98,21 @@ Subscription.init(
         lastPausedAt: {
             type: DataTypes.DATE,
             allowNull: true
+        },
+        refundAmount: {
+            type: DataTypes.FLOAT,
+            allowNull: true,
+            defaultValue: null
+        },
+        refundBreakdown: {
+            type: DataTypes.JSON,
+            allowNull: true,
+            defaultValue: null
+        },
+        refundInitiated: {
+            type: DataTypes.BOOLEAN,
+            allowNull: false,
+            defaultValue: false
         }
     },
     {

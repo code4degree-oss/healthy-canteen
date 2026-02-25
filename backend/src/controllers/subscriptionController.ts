@@ -31,6 +31,16 @@ export const pauseSubscription = async (req: Request, res: Response) => {
                 return res.status(400).json({ message: 'No pauses remaining for this subscription.' });
             }
 
+            // 4PM IST CUTOFF — Hold requests must be submitted before 4:00 PM IST
+            const nowIST = new Date(new Date().toLocaleString('en-US', { timeZone: 'Asia/Kolkata' }));
+            const currentHour = nowIST.getHours();
+            if (currentHour >= 16) { // 16:00 = 4 PM
+                await t.rollback();
+                return res.status(400).json({
+                    message: 'Pause requests must be submitted before 4:00 PM IST. Please try again tomorrow before 4 PM.'
+                });
+            }
+
             // PAUSE ACTION
             subscription.status = 'PAUSED';
             subscription.lastPausedAt = new Date();
@@ -108,43 +118,87 @@ export const cancelSubscription = async (req: Request, res: Response) => {
         const userId = (req as any).user.id;
         const { subscriptionId, reason } = req.body;
 
-        const subscription = await Subscription.findOne({ where: { id: subscriptionId, userId }, transaction: t });
+        const subscription = await Subscription.findOne({
+            where: { id: subscriptionId, userId },
+            transaction: t
+        });
 
         if (!subscription) {
             await t.rollback();
             return res.status(404).json({ message: 'Subscription not found' });
         }
 
-        // Calculate Total Duration
-        const startDate = new Date(subscription.startDate);
-        const endDate = new Date(subscription.endDate);
-        const totalDurationMs = endDate.getTime() - startDate.getTime();
-        const totalDurationDays = Math.ceil(totalDurationMs / (1000 * 3600 * 24));
-
-        // Cancellation Rule: Allowed if Total Plan > 6 Days
-        if (totalDurationDays <= 6) {
+        if (subscription.status === 'CANCELLED' || subscription.status === 'EXPIRED') {
             await t.rollback();
-            return res.status(400).json({ message: 'Cancellation is only available for plans longer than 6 days.' });
+            return res.status(400).json({ message: 'Subscription is already cancelled or expired.' });
         }
 
-        // Mark as CANCELLED
+        // Cancellation Rule: Allowed only within the first 3 days of service
+        const startDate = new Date(subscription.startDate);
+        const now = new Date();
+        const daysSinceStart = Math.floor((now.getTime() - startDate.getTime()) / (1000 * 3600 * 24));
+
+        if (daysSinceStart > 3) {
+            await t.rollback();
+            return res.status(400).json({
+                message: 'Cancellation is only allowed within the first 3 days of service. Your plan started more than 3 days ago.'
+            });
+        }
+
+        // Fetch the linked order to get totalPrice
+        const order = await (await import('../models/Order')).default.findByPk(subscription.orderId, { transaction: t });
+        const totalPaid = order ? order.totalPrice : 0;
+
+        // Calculate the total plan days from subscription
+        const endDate = new Date(subscription.endDate);
+        const totalDays = Math.max(1, Math.ceil((endDate.getTime() - startDate.getTime()) / (1000 * 3600 * 24)));
+
+        // Days consumed = totalDays - daysRemaining
+        const daysConsumed = totalDays - subscription.daysRemaining;
+        const perDayRate = totalPaid / totalDays;
+        const consumedAmount = Math.round(perDayRate * daysConsumed);
+        const grossRefund = totalPaid - consumedAmount;
+        const adminFee = Math.round(grossRefund * 0.10); // 10% admin + processing fee
+        const netRefund = grossRefund - adminFee;
+
+        const refundBreakdown = {
+            totalPaid,
+            totalDays,
+            daysConsumed,
+            daysRemaining: subscription.daysRemaining,
+            perDayRate: Math.round(perDayRate),
+            consumedAmount,
+            grossRefund,
+            adminFeePercent: 10,
+            adminFee,
+            netRefund: Math.max(0, netRefund),
+            note: 'Refund will be initiated within 24-48 hours.'
+        };
+
+        // Mark as CANCELLED with refund info
         subscription.status = 'CANCELLED';
         subscription.cancellationReason = reason || 'No reason provided';
+        subscription.refundAmount = Math.max(0, netRefund);
+        subscription.refundBreakdown = refundBreakdown;
 
         await subscription.save({ transaction: t });
-
         await t.commit();
 
-        // Send cancellation email (fire-and-forget)
+        // Send cancellation email with refund breakdown (fire-and-forget)
         const cancelUser = await User.findByPk(userId);
         if (cancelUser && cancelUser.email) {
             sendSubscriptionCancelled(cancelUser.email, cancelUser.name || 'Customer', {
                 protein: subscription.protein,
-                reason: subscription.cancellationReason || 'No reason provided'
+                reason: subscription.cancellationReason || 'No reason provided',
+                refundBreakdown
             }).catch(err => console.error('[Email] Cancel email failed:', err));
         }
 
-        res.status(200).json({ message: 'Subscription cancelled successfully.', subscription });
+        res.status(200).json({
+            message: 'Subscription cancelled successfully. Refund will be initiated within 24-48 hours.',
+            subscription,
+            refundBreakdown
+        });
     } catch (error) {
         await t.rollback();
         console.error("Cancel Error:", error);

@@ -178,7 +178,15 @@ export const createOrder = async (req: Request, res: Response) => {
             }
         }
 
-        const deliveryFee = days <= 5 ? 50 * days : 300;
+        // Dynamic delivery fee from admin settings
+        const feePerDaySetting = await Settings.findOne({ where: { key: 'deliveryFeePerDay' } });
+        const feeFlatSetting = await Settings.findOne({ where: { key: 'deliveryFeeFlat' } });
+        const feeThresholdSetting = await Settings.findOne({ where: { key: 'deliveryFeeDayThreshold' } });
+        const feePerDay = parseFloat(feePerDaySetting?.value || '50');
+        const feeFlat = parseFloat(feeFlatSetting?.value || '300');
+        const feeThreshold = parseInt(feeThresholdSetting?.value || '5');
+
+        const deliveryFee = days <= feeThreshold ? feePerDay * days : feeFlat;
         const totalPrice = discountedBasePrice + addOnTotal + deliveryFee;
 
         const order = await Order.create({

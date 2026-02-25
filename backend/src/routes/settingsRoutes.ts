@@ -105,4 +105,42 @@ router.put('/popup', authenticateToken, authorizeRole(['admin']), generalUpload.
     }
 });
 
+// GET /api/settings/delivery-fee — public (frontend needs this for checkout)
+router.get('/delivery-fee', async (req, res) => {
+    try {
+        const feePerDay = await Settings.findOne({ where: { key: 'deliveryFeePerDay' } });
+        const feeFlat = await Settings.findOne({ where: { key: 'deliveryFeeFlat' } });
+        const dayThreshold = await Settings.findOne({ where: { key: 'deliveryFeeDayThreshold' } });
+
+        res.json({
+            deliveryFeePerDay: parseFloat(feePerDay?.value || '50'),
+            deliveryFeeFlat: parseFloat(feeFlat?.value || '300'),
+            deliveryFeeDayThreshold: parseInt(dayThreshold?.value || '5'),
+        });
+    } catch (error) {
+        res.status(500).json({ message: 'Failed to fetch delivery fee settings' });
+    }
+});
+
+// PUT /api/settings/delivery-fee — admin only
+router.put('/delivery-fee', authenticateToken, authorizeRole(['admin']), async (req, res) => {
+    try {
+        const { deliveryFeePerDay, deliveryFeeFlat, deliveryFeeDayThreshold } = req.body;
+
+        if (deliveryFeePerDay !== undefined) {
+            await Settings.upsert({ key: 'deliveryFeePerDay', value: String(deliveryFeePerDay) });
+        }
+        if (deliveryFeeFlat !== undefined) {
+            await Settings.upsert({ key: 'deliveryFeeFlat', value: String(deliveryFeeFlat) });
+        }
+        if (deliveryFeeDayThreshold !== undefined) {
+            await Settings.upsert({ key: 'deliveryFeeDayThreshold', value: String(deliveryFeeDayThreshold) });
+        }
+
+        res.json({ message: 'Delivery fee settings updated successfully' });
+    } catch (error) {
+        res.status(500).json({ message: 'Failed to update delivery fee settings' });
+    }
+});
+
 export default router;
