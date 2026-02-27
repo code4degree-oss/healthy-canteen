@@ -1,5 +1,5 @@
-import React, { useEffect, useState } from 'react';
-import { ArrowLeft, MapPin, Phone, Navigation, CheckCircle, Clock, XCircle, History, Calendar } from 'lucide-react';
+import React, { useEffect, useState, useCallback, useRef } from 'react';
+import { ArrowLeft, MapPin, Phone, Navigation, CheckCircle, Clock, XCircle, History, Calendar, X } from 'lucide-react';
 import { delivery } from '../src/services/api';
 
 interface DeliveryDashboardProps {
@@ -37,31 +37,57 @@ export const DeliveryDashboard: React.FC<DeliveryDashboardProps> = ({ onBack }) 
     const [deliveries, setDeliveries] = useState<DeliveryItem[]>([]);
     const [loading, setLoading] = useState(true);
     const [activeTab, setActiveTab] = useState<'queue' | 'history'>('queue');
+    const [processingId, setProcessingId] = useState<number | null>(null);
+
+    // Toast notification state
+    const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' | 'info' } | null>(null);
+    const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+    // Confirmation dialog state
+    const [confirmDialog, setConfirmDialog] = useState<{ message: string; onConfirm: () => void } | null>(null);
 
     // History State
     const [historyItems, setHistoryItems] = useState<HistoryItem[]>([]);
     const [historyDate, setHistoryDate] = useState(new Date().toISOString().split('T')[0]);
     const [historyLoading, setHistoryLoading] = useState(false);
+    const historyStale = useRef(false);
 
+    const showToast = useCallback((message: string, type: 'success' | 'error' | 'info' = 'info') => {
+        if (toastTimer.current) clearTimeout(toastTimer.current);
+        setToast({ message, type });
+        toastTimer.current = setTimeout(() => setToast(null), 3000);
+    }, []);
+
+    const showConfirm = useCallback((message: string, onConfirm: () => void) => {
+        setConfirmDialog({ message, onConfirm });
+    }, []);
+
+    // Auto-refresh queue every 30 seconds
     useEffect(() => {
         fetchQueue();
+        const interval = setInterval(() => {
+            fetchQueue(true); // silent refresh (no loading spinner)
+        }, 30000);
+        return () => clearInterval(interval);
     }, []);
 
     useEffect(() => {
         if (activeTab === 'history') {
+            // Always re-fetch when switching to history (catches newly completed deliveries)
             fetchHistory();
+            historyStale.current = false;
         }
     }, [activeTab, historyDate]);
 
-    const fetchQueue = async () => {
+    const fetchQueue = async (silent = false) => {
         try {
-            setLoading(true);
+            if (!silent) setLoading(true);
             const res = await delivery.getQueue();
             setDeliveries(res.data);
         } catch (error) {
             console.error("Failed to fetch deliveries", error);
         } finally {
-            setLoading(false);
+            if (!silent) setLoading(false);
         }
     };
 
@@ -77,40 +103,101 @@ export const DeliveryDashboard: React.FC<DeliveryDashboardProps> = ({ onBack }) 
         }
     };
 
-    const handleConfirmDelivery = (item: DeliveryItem) => {
-        if (confirm("Confirm delivery for " + item.customerName + "?")) {
-            navigator.geolocation.getCurrentPosition(async (pos) => {
-                try {
-                    await delivery.confirm({
-                        subscriptionId: item.id,
-                        lat: pos.coords.latitude,
-                        lng: pos.coords.longitude
-                    });
-                    alert("Delivery confirmed!");
-                    setDeliveries(deliveries.filter(d => d.id !== item.id));
-                } catch (e) {
-                    alert("Failed to confirm delivery");
-                }
-            }, () => {
-                alert("Location access required to confirm delivery!");
+    const doConfirmDelivery = async (item: DeliveryItem, lat?: number, lng?: number) => {
+        setProcessingId(item.id);
+        try {
+            await delivery.confirm({
+                subscriptionId: item.id,
+                lat,
+                lng
             });
+            showToast(`Delivery confirmed for ${item.customerName}!`, 'success');
+            setDeliveries(prev => prev.filter(d => d.id !== item.id));
+            historyStale.current = true;
+        } catch (e) {
+            showToast('Failed to confirm delivery', 'error');
+        } finally {
+            setProcessingId(null);
         }
     };
 
-    const handleNoReceive = async (item: DeliveryItem) => {
-        if (confirm(`Mark "${item.customerName}" as no one to receive?`)) {
+    const handleConfirmDelivery = (item: DeliveryItem) => {
+        showConfirm(`Confirm delivery for ${item.customerName}?`, () => {
+            if (!navigator.geolocation) {
+                doConfirmDelivery(item);
+                return;
+            }
+
+            navigator.geolocation.getCurrentPosition(
+                (pos) => {
+                    doConfirmDelivery(item, pos.coords.latitude, pos.coords.longitude);
+                },
+                () => {
+                    doConfirmDelivery(item);
+                },
+                { timeout: 5000, maximumAge: 30000 }
+            );
+        });
+    };
+
+    const handleNoReceive = (item: DeliveryItem) => {
+        showConfirm(`Mark "${item.customerName}" as no one to receive?`, async () => {
+            setProcessingId(item.id);
             try {
                 await delivery.noReceive({ subscriptionId: item.id });
-                alert("Marked as no one to receive");
-                setDeliveries(deliveries.filter(d => d.id !== item.id));
+                showToast('Marked as no one to receive', 'success');
+                setDeliveries(prev => prev.filter(d => d.id !== item.id));
+                historyStale.current = true;
             } catch (e) {
-                alert("Failed to update status");
+                showToast('Failed to update status', 'error');
+            } finally {
+                setProcessingId(null);
             }
-        }
+        });
     };
 
     return (
         <div className="min-h-screen bg-slate-50 font-professional text-slate-900">
+            {/* Toast Notification */}
+            {toast && (
+                <div className="fixed top-4 left-1/2 -translate-x-1/2 z-50 max-w-sm w-[90%] animate-in slide-in-from-top fade-in duration-300">
+                    <div className={`flex items-center gap-3 px-4 py-3 rounded-lg shadow-lg border text-sm font-medium ${toast.type === 'success' ? 'bg-green-50 border-green-200 text-green-800' :
+                            toast.type === 'error' ? 'bg-red-50 border-red-200 text-red-800' :
+                                'bg-blue-50 border-blue-200 text-blue-800'
+                        }`}>
+                        {toast.type === 'success' && <CheckCircle size={18} className="text-green-500 shrink-0" />}
+                        {toast.type === 'error' && <XCircle size={18} className="text-red-500 shrink-0" />}
+                        <span className="flex-1">{toast.message}</span>
+                        <button onClick={() => setToast(null)} className="p-0.5 rounded hover:bg-black/5">
+                            <X size={14} />
+                        </button>
+                    </div>
+                </div>
+            )}
+
+            {/* Confirmation Dialog */}
+            {confirmDialog && (
+                <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 animate-in fade-in duration-200">
+                    <div className="bg-white rounded-xl shadow-xl max-w-xs w-[85%] p-5 animate-in zoom-in-95 duration-200">
+                        <p className="text-sm font-medium text-slate-800 mb-5 text-center leading-relaxed">{confirmDialog.message}</p>
+                        <div className="flex gap-3">
+                            <button
+                                onClick={() => setConfirmDialog(null)}
+                                className="flex-1 py-2.5 text-sm font-semibold text-slate-600 bg-slate-100 rounded-lg hover:bg-slate-200 transition-colors"
+                            >
+                                Cancel
+                            </button>
+                            <button
+                                onClick={() => { confirmDialog.onConfirm(); setConfirmDialog(null); }}
+                                className="flex-1 py-2.5 text-sm font-semibold text-white bg-slate-900 rounded-lg hover:bg-slate-800 transition-colors"
+                            >
+                                Confirm
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
+
             <header className="bg-slate-900 text-white shadow-md sticky top-0 z-30">
                 <div className="max-w-md mx-auto px-4 h-16 flex items-center justify-between">
                     <div className="flex items-center gap-4">
@@ -193,22 +280,28 @@ export const DeliveryDashboard: React.FC<DeliveryDashboardProps> = ({ onBack }) 
                                         </div>
 
                                         <div className="grid grid-cols-2 gap-3 mb-3">
-                                            <a
-                                                href={item.phone && item.phone !== 'N/A' ? `tel:${item.phone}` : '#'}
-                                                onClick={(e) => {
-                                                    if (!item.phone || item.phone === 'N/A') {
-                                                        e.preventDefault();
-                                                        alert('No phone number available for this customer.');
-                                                    }
-                                                }}
-                                                className={`flex items-center justify-center gap-2 py-2.5 border-2 rounded-lg text-sm font-semibold transition-colors shadow-sm ${item.phone && item.phone !== 'N/A'
-                                                    ? 'bg-white border-gray-200 text-gray-700 hover:bg-gray-50'
-                                                    : 'bg-gray-100 border-gray-200 text-gray-400 cursor-not-allowed'
-                                                    }`}
-                                            >
-                                                <Phone size={16} />
-                                                Call
-                                            </a>
+                                            {(() => {
+                                                const phone = item.phone?.trim();
+                                                const hasPhone = !!phone && phone !== 'N/A';
+                                                return (
+                                                    <a
+                                                        href={hasPhone ? `tel:${phone}` : undefined}
+                                                        onClick={(e) => {
+                                                            if (!hasPhone) {
+                                                                e.preventDefault();
+                                                                alert('No phone number available for this customer.');
+                                                            }
+                                                        }}
+                                                        className={`flex items-center justify-center gap-2 py-2.5 border-2 rounded-lg text-sm font-semibold transition-colors shadow-sm ${hasPhone
+                                                            ? 'bg-white border-gray-200 text-gray-700 hover:bg-gray-50'
+                                                            : 'bg-gray-100 border-gray-200 text-gray-400 cursor-not-allowed'
+                                                            }`}
+                                                    >
+                                                        <Phone size={16} />
+                                                        Call
+                                                    </a>
+                                                );
+                                            })()}
                                             <button
                                                 onClick={() => {
                                                     if (item.lat && item.lng) {
@@ -228,13 +321,24 @@ export const DeliveryDashboard: React.FC<DeliveryDashboardProps> = ({ onBack }) 
                                         <div className="space-y-2">
                                             <button
                                                 onClick={() => handleConfirmDelivery(item)}
-                                                className="w-full flex items-center justify-center gap-2 py-3 bg-green-600 text-white rounded-lg text-sm font-bold hover:bg-green-700 transition-colors shadow-sm">
-                                                <CheckCircle size={18} />
-                                                CONFIRM DELIVERY
+                                                disabled={processingId === item.id}
+                                                className={`w-full flex items-center justify-center gap-2 py-3 rounded-lg text-sm font-bold transition-colors shadow-sm ${processingId === item.id
+                                                        ? 'bg-green-400 text-white cursor-not-allowed'
+                                                        : 'bg-green-600 text-white hover:bg-green-700'
+                                                    }`}>
+                                                {processingId === item.id ? (
+                                                    <><span className="h-4 w-4 border-2 border-white border-t-transparent rounded-full animate-spin" /> Processing...</>
+                                                ) : (
+                                                    <><CheckCircle size={18} /> CONFIRM DELIVERY</>
+                                                )}
                                             </button>
                                             <button
                                                 onClick={() => handleNoReceive(item)}
-                                                className="w-full flex items-center justify-center gap-2 py-2.5 bg-white text-red-600 border-2 border-red-200 rounded-lg text-sm font-bold hover:bg-red-50 transition-colors">
+                                                disabled={processingId === item.id}
+                                                className={`w-full flex items-center justify-center gap-2 py-2.5 border-2 rounded-lg text-sm font-bold transition-colors ${processingId === item.id
+                                                        ? 'bg-gray-50 text-gray-400 border-gray-200 cursor-not-allowed'
+                                                        : 'bg-white text-red-600 border-red-200 hover:bg-red-50'
+                                                    }`}>
                                                 <XCircle size={16} />
                                                 No One to Receive
                                             </button>
@@ -284,9 +388,9 @@ export const DeliveryDashboard: React.FC<DeliveryDashboardProps> = ({ onBack }) 
                                             <p className="text-xs text-slate-500 flex items-center gap-1 mt-0.5">
                                                 <MapPin size={12} /> {item.address}
                                             </p>
-                                            {item.phone && item.phone !== 'N/A' && (
-                                                <a href={`tel:${item.phone}`} className="text-xs text-blue-500 flex items-center gap-1 mt-0.5 hover:underline">
-                                                    <Phone size={12} /> {item.phone}
+                                            {item.phone?.trim() && item.phone.trim() !== 'N/A' && (
+                                                <a href={`tel:${item.phone.trim()}`} className="text-xs text-blue-500 flex items-center gap-1 mt-0.5 hover:underline">
+                                                    <Phone size={12} /> {item.phone.trim()}
                                                 </a>
                                             )}
                                         </div>
